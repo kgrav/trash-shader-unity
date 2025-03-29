@@ -13,22 +13,24 @@ MonoBehaviour:
   m_Name: Readme
   m_EditorClassIdentifier: 
   icon: {fileID: 2800000, guid: 727a75301c3d24613a3ebcec4a24c2c8, type: 3}
-  title: URP Empty Template
+  title: Trashcore
   sections:
-  - heading: Welcome to the Universal Render Pipeline
-    text: This template includes the settings and assets you need to start creating with the Universal Render Pipeline.
+  - heading: Overview
+    text: Read image buffer. Convert rgb to YCbCr. Downsample the Y (brightness) channel fuzz number of times. Downsample the flat chroma (combined CbCr channels at midtone brightness) based on cronch. Quantize each channel based on crunch. 
+  - heading: Fuzz
+    text: Size of distortion in value channel.
     linkText: 
     url:
-  - heading: URP Documentation
-    text:
-    linkText: Read more about URP
-    url: https://docs.unity3d.com/Packages/com.unity.render-pipelines.universal@latest
-  - heading: Forums
-    text:
-    linkText: Get answers and support
+  - heading: Cronch
+    text: Level of chroma subsampling. Unlike the actual jpeg compression, the subsampling level is independent of the fuzz factor so the artist has more direct control of this factor.
+  - heading: Crunch
+    text: Number of levels when posterizing flat chroma post DCT.
+  - heading: Nihilism Compression Algorithm
+    text: Converts one (monochromatic) channel to a gradient from the minimum value pixel to the maximum value pixel.
+    linkText: Add link to paper
     url: https://forum.unity.com/forums/universal-render-pipeline.383/
-  - heading: Report bugs
-    text:
-    linkText: Submit a report
-    url: https://unity3d.com/unity/qa/bug-reporting
+  - heading: DCT Compression
+    text: Okay its a bit complicated but there are a lot of great videos
+    linkText: Explained by Barry Van Veen
+    url: https://youtu.be/DS8N8cFVd-E?si=2C3nqE-80yT90v98&t=99
   loadedLayout: 1

@@ -1,5 +1,20 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-5633687932173026717
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e495a2c503ca8df47a5a3e7dbfc94f66, type: 3}
+  m_Name: CustomPostProcessRenderFeature
+  m_EditorClassIdentifier: 
+  m_Active: 0
+  m_bloomShader: {fileID: 4800000, guid: 40276ddf3c2c6c849a893ebb1a281ae3, type: 3}
+  m_compositeShader: {fileID: 4800000, guid: 0143d55ed09d41240b4608991ac8754f, type: 3}
 --- !u!114 &-1878332245247344467
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -40,7 +55,8 @@ MonoBehaviour:
       type: 3}
   m_RendererFeatures:
   - {fileID: -1878332245247344467}
-  m_RendererFeatureMap: adc0de57c6d2eee5
+  - {fileID: -5633687932173026717}
+  m_RendererFeatureMap: adc0de57c6d2eee563fa6b9bac1ed1b1
   m_UseNativeRenderPass: 0
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
   xrSystemData: {fileID: 11400000, guid: 60e1133243b97e347b653163a8c01b64, type: 2}
