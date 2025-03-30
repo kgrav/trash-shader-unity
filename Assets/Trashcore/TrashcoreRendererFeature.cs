@@ -6,10 +6,12 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
 {
     public Shader m_compositeShader;
     public ComputeShader m_computeShader;
-    [Range(0.0f, 1.0f)] public float m_Intensity; // Clamped slider between 0 and 1
+    //[Range(0.0f, 1.0f)] public float m_Intensity; // Clamped slider between 0 and 1
+    private float m_Intensity = 1f;
     [Range(0.0f, 1.0f)] public float m_Fuzz = 1f;
     [Range(0.0f, 1.0f)] public float m_Cronch; // Clamped slider between 0 and 1
     [Range(0.0f, 1.0f)] public float m_Crunch = 0.2f;  // posterization levels. 0 = binary, 1.0 = 256 levels
+    public Juice m_Juice = Juice.HeavyPulpOhYeahBabay;
     private Material m_material;
     private TrashcoreRenderPass m_renderPass;
     public enum TrashcoreDebugMode
@@ -20,6 +22,12 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
         DCT,
         Crunch,
         IDCT
+    }
+    public enum Juice
+    {
+        SomePulp,
+        SuspiciouslyPulpy,
+        HeavyPulpOhYeahBabay,
     }
 
     public TrashcoreDebugMode m_DebugMode;
@@ -36,6 +44,7 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
             m_renderPass.SetCrunch(m_Crunch);
             m_renderPass.SetFuzz(m_Fuzz);
             m_renderPass.SetDebugMode(m_DebugMode);
+            m_renderPass.SetJuice((int)m_Juice);
             renderer.EnqueuePass(m_renderPass);
         }
     }

@@ -8,6 +8,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
 	readonly Material m_Material;
     float m_Intensity;
     private readonly int p_crunchLevels = Shader.PropertyToID("crunch_levels");
+    private readonly int p_juice = Shader.PropertyToID("juice");
     private readonly RenderTexture t_ycbcrOutput;
     // originally this was implemented with just one temporary and one output texture,
     // but after wasting more than two hours trying to debug, rewrote in vulgar form
@@ -40,9 +41,10 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     private static Vector2Int size_cronch_level_3 = new(64, 32);
     private static Vector2Int size_cronch_level_4 = new(32, 16);
     private static Vector2Int size_cronch_level_5 = new(16, 8);
-    private float m_fuzz = 1f;
     private float m_cronch = 1f;
     private float m_crunch = 0.2f; // posterization levels. 0 = binary, 1.0 = 256 levels
+    private float m_fuzz = 1f;
+    private int m_juice = 8;
 
     public TrashcoreRenderPass(ComputeShader computeShader, Material material)
     {
@@ -118,6 +120,12 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     {
         m_fuzz = fuzz;
     }
+    public void SetJuice(int juice_factor)
+    {
+        m_juice = juice_factor;
+        Debug.Assert(0 <= juice_factor  && juice_factor <= 8, 
+            $"TrashcoreRenderPass: {juice_factor} must be between 0 and 2 inclusive, clamp the editor slider in feature.");
+    }   
     public void SetIntensity(float intensity)
     {
         m_Intensity = intensity;
@@ -252,6 +260,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBuffer cmd_dct = CommandBufferPool.Get("Trashhcore Dct 🧠");
         cmd_dct.SetComputeTextureParam(m_computeShader, m_kernelIndex_dct, "Input", t_cronched);
         cmd_dct.SetComputeTextureParam(m_computeShader, m_kernelIndex_dct, "Result", t_dctCoeffs);
+        cmd_dct.SetComputeIntParam(m_computeShader, p_juice, m_juice);
         cmd_dct.DispatchCompute(m_computeShader, m_kernelIndex_dct, cronchFileCount, cronchRankCount, 1);
         context.ExecuteCommandBuffer(cmd_dct);
         cmd_dct.Clear();
@@ -276,6 +285,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBuffer cmd_idct = CommandBufferPool.Get("Trashhcore Idct ✨");
         cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Input", t_crunchedCoeffs);
         cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Result", t_idctOutput);
+        cmd_idct.SetComputeIntParam(m_computeShader, p_juice, m_juice);
         cmd_idct.DispatchCompute(m_computeShader, m_kernelIndex_idct, cronchFileCount, cronchRankCount, 1);
         context.ExecuteCommandBuffer(cmd_idct);
         cmd_idct.Clear();

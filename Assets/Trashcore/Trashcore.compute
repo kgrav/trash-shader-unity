@@ -15,6 +15,7 @@ Texture2D<float4> Chroma; // used only in the output shader
 float Resolution_x;
 float Resolution_y;
 float crunch_levels;
+int juice;
 
 float4 RGBToYCbCr(float4 rgba)
 {
@@ -46,11 +47,12 @@ void TrashcoreCronch (uint3 id : SV_DispatchThreadID)
 [numthreads(8,8,1)]
 void TrashcoreDct (uint3 id : SV_DispatchThreadID)
 {
+    int frequency_limit = 6 + juice;
     // id.x and y represent the DCT block indices (not pixels!)
     int2 dct_origin = int2(id.x * 8, id.y * 8);
-    for (int s = 0; s < 8; s++) // s and t are in frequency space (output)
+    for (int s = 0; s < frequency_limit; s++) // s and t are in frequency space (output)
     {
-        for (int t = 0; t < 8; t++)
+        for (int t = 0; t < frequency_limit; t++)
         {
             float4 sum = 0.0;
             for (int u = 0; u < 8; u++)  // u and v are in texture space (input
@@ -94,16 +96,16 @@ void TrashcoreIdct (uint3 id : SV_DispatchThreadID)
     float4 sum = float4(0.0, 0.0, 0.0, 1.0);
     float4 tap0 = float4(0.0, 0.0, 0.0, 1.0);
     float4 tap1 = float4(0.0, 0.0, 0.0, 1.0);
-    //float4 tap2 = float4(0.0, 0.0, 0.0, 1.0); 
-
+    int frequency_limit = 6 + juice;
+    
     for (int u = 0; u < 8; u++) // u and v are in texture space (output)
     {
         for (int v = 0; v < 8; v++)
         {
             float4 result = float4(0.0, 0.0, 0.0, 1.0);
-            for (int s = 0; s < 8; s++) // s and t are in frequency space (input)
+            for (int s = 0; s < frequency_limit; s++) // s and t are in frequency space (input)
             {
-                for (int t = 0; t < 8; t++)
+                for (int t = 0; t < frequency_limit; t++)
                 {
                     float4 crunchedCoeficient = Input.Load(int3(idct_origin.x + s, idct_origin.y + t, 0));
                     float cos_x = cos(((2 * u + 1) * s * 3.14159265359) / 16.0);
@@ -125,14 +127,14 @@ void TrashcoreIdct (uint3 id : SV_DispatchThreadID)
     }
     // bandaid fix. the first pixel looks very green for some reason.
     // find the three adjacent pixels on the opposite corner of the post idct transform
-    Result[int2(idct_origin.x, idct_origin.y)] = 0.5 * tap0 + 0.5 * tap1;
+    Result[int2(idct_origin.x, idct_origin.y)] = 0.35 * tap0 + 0.65 * tap1;
 }
 
 [numthreads(8,8,1)]
 void TrashcoreOutput (uint3 id : SV_DispatchThreadID)
 {
-    float chroma_x = id.x * int(Resolution_x) / 1024;
-    float chroma_y = id.y * int(Resolution_y) / 512;
+    int chroma_x = id.x * int(Resolution_x) / 1024;
+    int chroma_y = id.y * int(Resolution_y) / 512;
     float4 chroma = Chroma.Load(int3(chroma_x, chroma_y, 0));
     float4 luma = Luma.Load(int3(id.xy, 0));
     
