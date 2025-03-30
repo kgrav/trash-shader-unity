@@ -28,8 +28,9 @@ MonoBehaviour:
   m_Name: TrashcoreRendererFeature
   m_EditorClassIdentifier: 
   m_Active: 1
-  m_Shader: {fileID: 4800000, guid: 76f941b218cb7094daddf7e88f555d38, type: 3}
-  m_Intensity: 0.36
+  m_compositeShader: {fileID: 4800000, guid: 7a537a5828828664eb6a0bd292efb910, type: 3}
+  m_computeShader: {fileID: 7200000, guid: 1be642e712daafd4da3f4a24813b5ca9, type: 3}
+  m_Intensity: 0.3
 --- !u!114 &-1878332245247344467
 MonoBehaviour:
   m_ObjectHideFlags: 0

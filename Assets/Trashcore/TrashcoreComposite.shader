@@ -1,4 +1,4 @@
-Shader "TrashcorePostprocesing"
+Shader "TrashcoreComposite"
 {
     SubShader
     {
@@ -7,7 +7,7 @@ Shader "TrashcorePostprocesing"
         ZTest Always ZWrite Off Cull Off
         Pass
         {
-            Name "TrashcorePostprocesingPass"
+            Name "TrashcoreCompositePass"
 
             HLSLPROGRAM
             #pragma vertex vert

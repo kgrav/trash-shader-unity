@@ -1,20 +1,28 @@
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
 internal class TrashcoreRenderPass : ScriptableRenderPass
 {
-    ProfilingSampler m_ProfilingSampler = new ProfilingSampler("ColorBlit");
+    ProfilingSampler m_ProfilingSampler = new ProfilingSampler("Trashcore");
     Material m_Material;
     float m_Intensity;
-    private RenderTexture _computeOutputTexture = null;
-    private TrashcoreCompute m_Compute;
+    private RenderTexture m_computeOutput;
+    private readonly ComputeShader m_computeShader;
+    private int m_kernelIndex_dct;
 
-    public TrashcoreRenderPass(TrashcoreCompute compressor, Material material)
+    public TrashcoreRenderPass(ComputeShader computeShader, Material material)
     {
-        m_Compute = compressor;
+        m_computeShader = computeShader;
         m_Material = material;
         renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
+        m_kernelIndex_dct = computeShader.FindKernel("CSMain");
+		m_computeOutput = new RenderTexture(1024, 512, 24)
+		{
+			enableRandomWrite = true
+		};
+		m_computeOutput.Create();
     }
 
     public void SetIntensity(float intensity)
@@ -22,30 +30,36 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         m_Intensity = intensity;
     }
 
-    public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
+    public override void Execute(ScriptableRenderContext context,
+                                    ref RenderingData renderingData)
     {
+        
         var camera = renderingData.cameraData.camera;
         if (camera.cameraType != CameraType.Game) return;
 
-        if (_computeOutputTexture == null) {
-            if (m_Compute.OutputTextureInitialized)
-            {
-                _computeOutputTexture = m_Compute.outputTexture;
-            }
-            else return;
-        }
-
-        CommandBuffer cmd = CommandBufferPool.Get();
-        using (new ProfilingScope(cmd, m_ProfilingSampler))
+        RenderTargetIdentifier cameraColorTarget = renderingData.cameraData.renderer.cameraColorTarget;
+        var width = renderingData.cameraData.cameraTargetDescriptor.width;
+        var height = renderingData.cameraData.cameraTargetDescriptor.height;
+        CommandBuffer cmd_dct = CommandBufferPool.Get("Trashhcore Compute");
+        cmd_dct.SetComputeTextureParam(m_computeShader, m_kernelIndex_dct, "Input", cameraColorTarget);
+        cmd_dct.SetComputeTextureParam(m_computeShader, m_kernelIndex_dct, "Result", m_computeOutput);
+        cmd_dct.SetComputeFloatParams(m_computeShader, "Resolution_x", width);
+        cmd_dct.SetComputeFloatParams(m_computeShader, "Resolution_y", height);
+        int threadGroupsX = Mathf.CeilToInt(width / 8.0f);
+        int threadGroupsY = Mathf.CeilToInt(height / 8.0f);
+        cmd_dct.DispatchCompute(m_computeShader, m_kernelIndex_dct, threadGroupsX, threadGroupsY, 1);
+        context.ExecuteCommandBuffer(cmd_dct);
+        CommandBufferPool.Release(cmd_dct);
+        
+        CommandBuffer cmd = CommandBufferPool.Get("Trashhcore Postprocess");
+        using (new UnityEngine.Rendering.ProfilingScope(cmd, m_ProfilingSampler))
         {
             m_Material.SetFloat("_Intensity", m_Intensity);
-            m_Material.SetTexture("_ComputeOutput", _computeOutputTexture);
-            //RenderingUtils.fullscreenMesh is a passthrough quad in clip space
+            m_Material.SetTexture("_ComputeOutput", m_computeOutput);
             cmd.DrawMesh(RenderingUtils.fullscreenMesh, Matrix4x4.identity, m_Material);
         }
         context.ExecuteCommandBuffer(cmd);
         cmd.Clear();
-
         CommandBufferPool.Release(cmd);
     }
 }

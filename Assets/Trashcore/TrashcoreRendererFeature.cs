@@ -4,11 +4,11 @@ using UnityEngine.Rendering.Universal;
 
 internal class TrashcoreRendererFeature : ScriptableRendererFeature
 {
-    public Shader m_Shader;
+    public Shader m_compositeShader;
+    public ComputeShader m_computeShader;
     public float m_Intensity;
     private Material m_Material;
-    private TrashcoreRenderPass m_RenderPass;
-    private TrashcoreCompute m_Compute = null;
+    private TrashcoreRenderPass m_renderPass;
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
@@ -16,18 +16,17 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
         {
             // Calling ConfigureInput with the ScriptableRenderPassInput.Color argument
             // ensures that the opaque texture is available to the Render Pass.
-            m_RenderPass.ConfigureInput(ScriptableRenderPassInput.Color);
-            m_RenderPass.SetIntensity(m_Intensity);
-            renderer.EnqueuePass(m_RenderPass);
+            m_renderPass.ConfigureInput(ScriptableRenderPassInput.Color);
+            m_renderPass.SetIntensity(m_Intensity);
+            renderer.EnqueuePass(m_renderPass);
         }
     }
 
     public override void Create()
     {
-        m_Compute = GameObject.FindObjectOfType<TrashcoreCompute>();
-        Debug.Assert(m_Compute != null, "Create a gameobject somewhere in the scene and attach the TrashcoreCompute script.");
-        m_Material = CoreUtils.CreateEngineMaterial(m_Shader);
-        m_RenderPass = new TrashcoreRenderPass(m_Compute, m_Material);
+        Debug.Assert(m_computeShader != null);
+        m_Material = CoreUtils.CreateEngineMaterial(m_compositeShader);
+        m_renderPass = new TrashcoreRenderPass(m_computeShader, m_Material);
     }
 
     protected override void Dispose(bool disposing)
