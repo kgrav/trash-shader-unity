@@ -7,6 +7,9 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
     public Shader m_compositeShader;
     public ComputeShader m_computeShader;
     public float m_Intensity;
+    public int m_Fuzz = 1;
+    public int m_Cronch = 2; 
+    public float m_Crunch = 0.2f;  // posterization levels. 0 = binary, 1.0 = 256 levels
     private Material m_Material;
     private TrashcoreRenderPass m_renderPass;
 

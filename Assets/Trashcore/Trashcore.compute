@@ -1,4 +1,6 @@
-#pragma kernel CSMain
+#pragma kernel TrashcoreYCbCr
+#pragma kernel TrashcoreCronch
+#pragma kernel TrashcoreDct
 
 // Create a RenderTexture with enableRandomWrite flag and set it
 RWTexture2D<float4> Result;
@@ -8,24 +10,58 @@ SamplerState samplerInput; // auto-gemerated by unity if name is texture plus "s
 float Resolution_x;
 float Resolution_y;
 
-[numthreads(8,8,1)]
-void CSMain (uint3 id : SV_DispatchThreadID)
+float4 RGBToYCbCr(float4 rgba)
 {
+    float Y  = 0.299 * rgba.r + 0.587 * rgba.g + 0.114 * rgba.b;
+    float Cb = (rgba.b - Y) * 0.564 + 0.5;
+    float Cr = (rgba.r - Y) * 0.713 + 0.5;
+    return float4(Cr, Y, Cb, 1.0); // not typical order but is closest to rgb while debugging
+}
 
+[numthreads(8,8,1)]
+void TrashcoreYCbCr (uint3 id : SV_DispatchThreadID)
+{
     float x = id.x / Resolution_x;
     float y = id.y / Resolution_y;
-
-    int offset = (int)(-y * Resolution_x / 2.0);
-    int shifted_x = id.x + offset;
-
     float4 inputColor = Input.SampleLevel(samplerInput, float2(x, y), 0);
+    Result[id.xy] = RGBToYCbCr(inputColor);
+}
 
-    float value = inputColor.b > 0.1? 1.0 : 0.0;
+[numthreads(8,8,1)]
+void TrashcoreCronch (uint3 id : SV_DispatchThreadID)
+{
+    float4 tap_00 = Input.Load(int3(    2 * id.x,     2 * id.y, 0));
+    float4 tap_01 = Input.Load(int3(1 + 2 * id.x,     2 * id.y, 0));
+    float4 tap_02 = Input.Load(int3(    2 * id.x, 1 + 2 * id.y, 0));
+    float4 tap_03 = Input.Load(int3(1 + 2 * id.x, 1 + 2 * id.y, 0));
+    Result[id.xy] = 0.25 * (tap_00 + tap_01 + tap_02 + tap_03);
+}
 
-    Result[id.xy] = float4(
-        value,
-        value,
-        value,
-        1.0
-    );
+[numthreads(8,8,1)]
+void TrashcoreDct (uint3 id : SV_DispatchThreadID)
+{
+    float x = id.x / Resolution_x;
+    float y = id.y / Resolution_y;
+    Result[id.xy] = float4(x, y, 0.0, 1.0);
+    // int2 dct_origin = int2(id.x * 8, id.y * 8); // Origin of the DCT block   
+    // for (int s = 0; s < 8; s++)
+    // {
+    //     for (int t = 0; t < 8; t++)
+    //     {
+    //         float4 sum = 0.0;
+    //         for (int x = 0; x < 8; x++)
+    //         {
+    //             for (int y = 0; y < 8; y++)
+    //             {
+    //                 float4 pixelValue = Input[dct_origin.x + x, dct_origin.y + y];
+    //                 float cos_x = cos(((2 * x + 1) * u * M_PI) / 16.0);
+    //                 float cos_y = cos(((2 * y + 1) * v * M_PI) / 16.0);
+    //                 sum += pixelValue * cos_x * cos_y;
+    //             }
+    //         }
+    //         float C_u = (u == 0) ? sqrt(0.5) : 1.0;
+    //         float C_v = (v == 0) ? sqrt(0.5) : 1.0;
+    //         Result[dct_origin.x + s, dct_origin.y + t] = 0.25 * C_u * C_v * sum;
+    //     }
+    // }
 }
