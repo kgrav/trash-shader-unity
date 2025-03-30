@@ -12,6 +12,17 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
     [Range(0.0f, 1.0f)] public float m_Crunch = 0.2f;  // posterization levels. 0 = binary, 1.0 = 256 levels
     private Material m_material;
     private TrashcoreRenderPass m_renderPass;
+    public enum TrashcoreDebugMode
+    {
+        None,
+        YCbCr,
+        Cronch,
+        DCT,
+        Crunch,
+        IDCT
+    }
+
+    public TrashcoreDebugMode m_DebugMode;
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
@@ -22,7 +33,9 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
             m_renderPass.ConfigureInput(ScriptableRenderPassInput.Color);
             m_renderPass.SetIntensity(m_Intensity);
             m_renderPass.SetCronch(m_Cronch);
+            m_renderPass.SetCrunch(m_Crunch);
             m_renderPass.SetFuzz(m_Fuzz);
+            m_renderPass.SetDebugMode(m_DebugMode);
             renderer.EnqueuePass(m_renderPass);
         }
     }

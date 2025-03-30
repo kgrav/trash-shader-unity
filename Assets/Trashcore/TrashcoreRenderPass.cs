@@ -1,15 +1,13 @@
-using System;
-using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
-using static System.Linq.Enumerable;
 
 internal class TrashcoreRenderPass : ScriptableRenderPass
 {
     private readonly ComputeShader m_computeShader;
 	readonly Material m_Material;
     float m_Intensity;
+    private readonly int p_crunchLevels = Shader.PropertyToID("crunch_levels");
     private readonly RenderTexture t_ycbcrOutput;
     // originally this was implemented with just one temporary and one output texture,
     // but after wasting more than two hours trying to debug, rewrote in vulgar form
@@ -72,10 +70,16 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
 
     private RenderTexture CronchTexture(Vector2Int size)
     {
-        RenderTexture renderTexture = new(size.x, size.y, 24)
+        RenderTexture renderTexture = new(
+            size.x,
+            size.y,
+            24,
+            RenderTextureFormat.DefaultHDR,
+            RenderTextureReadWrite.Linear)
         {
             enableRandomWrite = true,
             filterMode = FilterMode.Point,
+            // Removed sRGB assignment as it is read-only
         };
         renderTexture.Create();
         return renderTexture;
@@ -87,7 +91,12 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         Vector2Int size)
     {
         int kernelIndex = computeShader.FindKernel(kernelName);
-        RenderTexture renderTexture = new(size.x, size.y, 24)
+        RenderTexture renderTexture = new(
+            size.x, 
+            size.y, 
+            24,
+            RenderTextureFormat.DefaultHDR,
+            RenderTextureReadWrite.Linear)
         {
             enableRandomWrite = true,
             filterMode = FilterMode.Point,
@@ -258,7 +267,10 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         cmd_crunch.SetComputeTextureParam(m_computeShader, m_kernelIndex_crunch, "Result", t_crunchedCoeffs);
         cmd_crunch.SetComputeFloatParams(m_computeShader, "Resolution_x", CronchSize.x);
         cmd_crunch.SetComputeFloatParams(m_computeShader, "Resolution_y", CronchSize.y);
-        cmd_crunch.SetComputeFloatParams(m_computeShader, "Crunch", m_crunch);
+        
+        float exponent = Mathf.Lerp(1.0f, 7.0f, m_crunch);
+        float crunchLevels = Mathf.Round(Mathf.Pow(2.0f, exponent));
+        cmd_crunch.SetComputeFloatParam(m_computeShader, p_crunchLevels, crunchLevels);
         cmd_crunch.DispatchCompute(m_computeShader, m_kernelIndex_crunch, 8 * cronchFileCount, 8 * cronchRankCount, 1);
         context.ExecuteCommandBuffer(cmd_crunch);
         cmd_crunch.Clear();
@@ -280,22 +292,62 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         #region COMPOSITE 🔧🛠️🖼️📸 ⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎
         CommandBuffer cmd = CommandBufferPool.Get("Trashhcore Composite");
         m_Material.SetFloat("_Intensity", m_Intensity);
-        if (true)
+
+        switch (m_DebugMode)
         {
-            m_Material.SetTexture("_ComputeOutput", t_cronched);
-            m_Material.SetFloat("_ComputeUScale", 1f);
-            m_Material.SetFloat("_ComputeVScale", 1f);
+            case TrashcoreRendererFeature.TrashcoreDebugMode.YCbCr:
+                m_Material.SetTexture("_ComputeOutput", t_ycbcrOutput);
+                m_Material.SetFloat("_ComputeUScale", 1.0f);
+                m_Material.SetFloat("_ComputeVScale", 1.0f);
+                break;
+            case TrashcoreRendererFeature.TrashcoreDebugMode.Cronch:
+                m_Material.SetTexture("_ComputeOutput", t_cronched);
+                m_Material.SetFloat("_ComputeUScale", 1f);
+                m_Material.SetFloat("_ComputeVScale", 1f);
+                break;
+            case TrashcoreRendererFeature.TrashcoreDebugMode.DCT:
+                m_Material.SetTexture("_ComputeOutput", t_dctCoeffs);
+                m_Material.SetFloat("_ComputeUScale", max_dct_size.x / CronchSize.x);
+                m_Material.SetFloat("_ComputeVScale", max_dct_size.y / CronchSize.y);
+                break;
+            case TrashcoreRendererFeature.TrashcoreDebugMode.Crunch:
+                m_Material.SetTexture("_ComputeOutput", t_crunchedCoeffs);
+                m_Material.SetFloat("_ComputeUScale", max_dct_size.x / CronchSize.x);
+                m_Material.SetFloat("_ComputeVScale", max_dct_size.y / CronchSize.y);
+                break;
+            case TrashcoreRendererFeature.TrashcoreDebugMode.IDCT:
+                m_Material.SetTexture("_ComputeOutput", t_trashedOutput);
+                m_Material.SetFloat("_ComputeUScale", max_dct_size.x / CronchSize.x);
+                m_Material.SetFloat("_ComputeVScale", max_dct_size.y / CronchSize.y);
+                break;
+            default:
+                m_Material.SetTexture("_ComputeOutput", t_cronched);
+                m_Material.SetFloat("_ComputeUScale", 1f);
+                m_Material.SetFloat("_ComputeVScale", 1f);
+                break;
         }
-        else
-        {
-            m_Material.SetTexture("_ComputeOutput", t_ycbcrOutput);
-            m_Material.SetFloat("_ComputeUScale", 1.2f);
-            m_Material.SetFloat("_ComputeVScale", 1.2f);
-        }
+
         cmd.DrawMesh(RenderingUtils.fullscreenMesh, Matrix4x4.identity, m_Material);
         context.ExecuteCommandBuffer(cmd);
         cmd.Clear();
         CommandBufferPool.Release(cmd);
         #endregion
+    }
+
+    // public enum TrashcoreDebugMode
+    // {
+    //     None,
+    //     YCbCr,
+    //     Cronch,
+    //     DCT,
+    //     Crunch,
+    //     IDCT
+    // }
+
+    private TrashcoreRendererFeature.TrashcoreDebugMode m_DebugMode 
+                = TrashcoreRendererFeature.TrashcoreDebugMode.YCbCr;
+    public void SetDebugMode(TrashcoreRendererFeature.TrashcoreDebugMode debugMode)
+    {
+        m_DebugMode = debugMode;
     }
 }

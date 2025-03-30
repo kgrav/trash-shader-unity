@@ -32,8 +32,9 @@ MonoBehaviour:
   m_computeShader: {fileID: 7200000, guid: 1be642e712daafd4da3f4a24813b5ca9, type: 3}
   m_Intensity: 1
   m_Fuzz: 1
-  m_Cronch: 0.211
-  m_Crunch: 0.398
+  m_Cronch: 0.605
+  m_Crunch: 0.574
+  m_DebugMode: 4
 --- !u!114 &-1878332245247344467
 MonoBehaviour:
   m_ObjectHideFlags: 0

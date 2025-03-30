@@ -11,7 +11,7 @@ SamplerState samplerInput; // auto-gemerated by unity if name is texture plus "s
 
 float Resolution_x;
 float Resolution_y;
-int crunch;
+float crunch_levels;
 
 float4 RGBToYCbCr(float4 rgba)
 {
@@ -54,7 +54,7 @@ void TrashcoreDct (uint3 id : SV_DispatchThreadID)
             {
                 for (int v = 0; v < 8; v++)
                 {
-                    float4 pixelValue = Input[int2(dct_origin.x + u, dct_origin.y + v)];
+                    float4 pixelValue = Input.Load(int3(dct_origin.x + u, dct_origin.y + v, 0));
                     float cos_x = cos(((2 * u + 1) * s * 3.14159265359) / 16.0);
                     float cos_y = cos(((2 * v + 1) * t * 3.14159265359) / 16.0);
                     sum += pixelValue * cos_x * cos_y;
@@ -62,6 +62,7 @@ void TrashcoreDct (uint3 id : SV_DispatchThreadID)
             }
             float C_s = (s == 0) ? sqrt(0.5) : 1.0;
             float C_t = (t == 0) ? sqrt(0.5) : 1.0;
+            sum.w = 1.0;
             Result[int2(dct_origin.x + s, dct_origin.y + t)] = 0.25 * C_s * C_t * sum;
         }
     }
@@ -75,11 +76,10 @@ void TrashcoreCrunch (uint3 id : SV_DispatchThreadID)
     // Reduce total number of posterization levels as one gets further from DCT block origin
     int2 dct_offset = int2(id.x % 8, id.y % 8);
     float manhattanDistance = dct_offset.x + dct_offset.y; // oh yeah cuz we nasty like that
-    float frequency_falloff = lerp(1.0, 8.0, (manhattanDistance - 5.0) / (16.0 - 5.0));
+    float frequency_falloff = lerp(1.0, 4.0, (manhattanDistance - 5.0) / (16.0 - 5.0));
 
     // actual jpeg compression uses a different formula but lets exeriment a little
-    float f_crunch = float(crunch);
-    Result[id.xy] = floor(inputValue * f_crunch / frequency_falloff) / f_crunch * frequency_falloff;
+    Result[id.xy] = floor(inputValue * crunch_levels / frequency_falloff) / crunch_levels * frequency_falloff;
 }
 
 [numthreads(8,8,1)]
