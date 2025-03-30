@@ -57,10 +57,12 @@ Shader "TrashcoreComposite"
             half4 frag (Varyings input) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
-                float4 color = SAMPLE_TEXTURE2D_X(_CameraOpaqueTexture, sampler_CameraOpaqueTexture, input.uv);
-                float2 computeUV = input.uv * float2(_ComputeUScale, _ComputeVScale);
+                float u_scale = (_ComputeUScale != 0.0) ? _ComputeUScale : 1.0;
+                float v_scale = (_ComputeVScale != 0.0) ? _ComputeVScale : 1.0;
+                float2 computeUV = float2(input.uv.x / u_scale, input.uv.y / v_scale);
                 float4 computeColor = SAMPLE_TEXTURE2D_X(_ComputeOutput, sampler_ComputeOutput, computeUV);
-                return lerp(color, computeColor, _Intensity);
+                float4 cameraColor = SAMPLE_TEXTURE2D_X(_CameraOpaqueTexture, sampler_CameraOpaqueTexture, input.uv);
+                return lerp(cameraColor, computeColor, _Intensity);
             }
             ENDHLSL
         }

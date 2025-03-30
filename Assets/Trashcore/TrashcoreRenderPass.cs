@@ -1,3 +1,4 @@
+using System;
 using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -10,7 +11,16 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
 	readonly Material m_Material;
     float m_Intensity;
     private readonly RenderTexture t_ycbcrOutput;
-    private readonly RenderTexture t_cronched;
+    // originally this was implemented with just one temporary and one output texture,
+    // but after wasting more than two hours trying to debug, rewrote in vulgar form
+    // like you see here and it worked perfectly the first time. :shrug: 
+    private readonly RenderTexture t_cronched_0;
+    private readonly RenderTexture t_cronched_1;
+    private readonly RenderTexture t_cronched_2;
+    private readonly RenderTexture t_cronched_3;
+    private readonly RenderTexture t_cronched_4;
+    private readonly RenderTexture t_cronched_5;
+
     private readonly RenderTexture t_dctCoeffs;
     private readonly RenderTexture t_crunchedCoeffs;
     private readonly RenderTexture t_trashedOutput;
@@ -21,9 +31,17 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     private readonly int m_kernelIndex_crunch;
     private readonly int m_kernelIndex_idct;
     private Vector2Int ycbcr_size = new(1024, 512);
-    private Vector2Int dct_size = new(1024 / 2, 512 / 2);
-    private float m_fuzz = 1;
-    private float m_cronch = 2;
+    // dct will run at the final cronched size. final cronch will not be larger than 512 x 256
+    private Vector2Int max_dct_size = new(512, 256);
+    // oh how demurre, how vulgar but humble, but it worked with basically zero debugging.
+    private static Vector2Int size_cronch_level_0 = new(512, 256); // same as max dct
+    private static Vector2Int size_cronch_level_1 = new(256, 128);
+    private static Vector2Int size_cronch_level_2 = new(128, 64);
+    private static Vector2Int size_cronch_level_3 = new(64, 32);
+    private static Vector2Int size_cronch_level_4 = new(32, 16);
+    private static Vector2Int size_cronch_level_5 = new(16, 8);
+    private float m_fuzz = 1f;
+    private float m_cronch = 1f;
     private float m_crunch = 0.2f; // posterization levels. 0 = binary, 1.0 = 256 levels
 
     public TrashcoreRenderPass(ComputeShader computeShader, Material material)
@@ -32,16 +50,35 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         m_Material = material;
         renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
         var shader = computeShader;
-        (m_kernelIndex_ycbcr,  t_ycbcrOutput)    = KernelTexture(shader, "TrashcoreYCbCr", ycbcr_size);
-        (m_kernelIndex_cronch, t_cronched)       = KernelTexture(shader, "TrashcoreCronch", dct_size);
-        (m_kernelIndex_dct,    t_dctCoeffs)      = KernelTexture(shader, "TrashcoreDct", dct_size);
-        (m_kernelIndex_crunch, t_crunchedCoeffs) = KernelTexture(shader, "TrashcoreCrunch", dct_size);
 
-        t_temporary = new RenderTexture(dct_size.x, dct_size.y, 24)
+        // in sequence: first convert to ycbcr at "max" 1024 x 512 resolution. 
+        (m_kernelIndex_ycbcr,  t_ycbcrOutput)    = KernelTexture(shader, "TrashcoreYCbCr", ycbcr_size);
+
+        // then create mimaps of the ycbcr texture, which is the input to the cronch shader.
+        (m_kernelIndex_cronch, t_cronched_0)     = KernelTexture(shader, "TrashcoreCronch", max_dct_size);
+        t_cronched_1 = CronchTexture(size_cronch_level_1);
+        t_cronched_2 = CronchTexture(size_cronch_level_2);
+        t_cronched_3 = CronchTexture(size_cronch_level_3);
+        t_cronched_4 = CronchTexture(size_cronch_level_4);
+        t_cronched_5 = CronchTexture(size_cronch_level_5);
+        
+        // then perform 2d dct and posterize the values
+        (m_kernelIndex_dct,    t_dctCoeffs)      = KernelTexture(shader, "TrashcoreDct", max_dct_size);
+        (m_kernelIndex_crunch, t_crunchedCoeffs) = KernelTexture(shader, "TrashcoreCrunch", max_dct_size);
+        
+        // perform inverse dct on the results
+        t_trashedOutput = CronchTexture(max_dct_size);
+    }
+
+    private RenderTexture CronchTexture(Vector2Int size)
+    {
+        RenderTexture renderTexture = new(size.x, size.y, 24)
         {
             enableRandomWrite = true,
             filterMode = FilterMode.Point,
         };
+        renderTexture.Create();
+        return renderTexture;
     }
 
     private (int kernelIndex, RenderTexture renderTexture) KernelTexture(
@@ -92,6 +129,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         int files = Mathf.CeilToInt(outputSize.y / 8.0f);
         cmd.DispatchCompute(m_computeShader, m_kernelIndex_cronch, ranks, files, 1);
         context.ExecuteCommandBuffer(cmd);
+        cmd.Clear();
         CommandBufferPool.Release(cmd);
     }
 
@@ -119,6 +157,15 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     }
 
     const int CRONCH_MAX_LEVEL = 5;
+    private readonly static Vector2Int[] cronchSizes = new[]
+    {
+        size_cronch_level_0, // Level 0
+        new Vector2Int(256, 128), // Level 1
+        new Vector2Int(128, 64),  // Level 2
+        new Vector2Int(64, 32),   // Level 3
+        new Vector2Int(32, 16),   // Level 4
+        new Vector2Int(16, 8)     // Level 5
+    };
     public override void Execute(ScriptableRenderContext context,
                                     ref RenderingData renderingData)
     {
@@ -154,10 +201,10 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         
         // map the input scalar to an integer from 5 to zero, cronched output height in pixels is equal 
         // to 8 * (1 << clampedCronch). minCronchLevel is the coarsest resolution to which we will process.
-        int minCronchLevel = Mathf.RoundToInt(Mathf.Lerp(5f, 0f, Mathf.Clamp01(m_cronch)));
-        var debugFinalTexture = t_cronched;
         
-        var dct_unit = new Vector2Int(8, 8);
+        int minCronchLevel = (int)((6f - 1e-3f) * m_cronch);
+        Debug.Assert(minCronchLevel >= 0 && minCronchLevel <= CRONCH_MAX_LEVEL, 
+            $"TrashcoreRenderPass: Invalid cronch level {minCronchLevel}. Must be between 0 and {CRONCH_MAX_LEVEL}.");
         
         // cronch level 0 has a height = 8 pixels, i.e. is one dct block.
         //      cronch level 1: h = 16 pixels
@@ -168,31 +215,25 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         // Atm DCT textures are 2w:1h aspect ratio. Future @Todo: implement "fit
         // width to screen logic" to make error pixels square. Not necessary for now.
 
-        // the dimensions of cronch level.   
-        int[] heightPerLevel = Range(0, 1 + TrashcoreRenderPass.CRONCH_MAX_LEVEL)
-                                .Select(i => 8 * (1 << i))
-                                .ToArray();
+        Cronch(context, t_ycbcrOutput, t_cronched_0, size_cronch_level_0, "Trashhcore Cronch Level 0");
+        Cronch(context, t_cronched_0,  t_cronched_1, size_cronch_level_1, "Trashhcore Cronch Level 1");
+        Cronch(context, t_cronched_1,  t_cronched_2, size_cronch_level_2, "Trashhcore Cronch Level 2");
+        Cronch(context, t_cronched_2,  t_cronched_3, size_cronch_level_3, "Trashhcore Cronch Level 3");
+        Cronch(context, t_cronched_3,  t_cronched_4, size_cronch_level_4, "Trashhcore Cronch Level 4");
+        Cronch(context, t_cronched_4,  t_cronched_5, size_cronch_level_5, "Trashhcore Cronch Level 5");
 
-        // mipIndex = mip level - 1, where mip level 0 is the source image at full scale
-        var numberOfMips = 6 - minCronchLevel;
-        for (int mipIndex = 0; mipIndex < numberOfMips; mipIndex++)
+        var textures = new[]
         {
-            var levelHeight = heightPerLevel[5 - mipIndex];
-            var levelSize = new Vector2Int(2 * levelHeight, levelHeight);
-            var levelDescription = $"Trashhcore Cronch Level {mipIndex}";
+            t_cronched_0,
+            t_cronched_1,
+            t_cronched_2,
+            t_cronched_3,
+            t_cronched_4,
+            t_cronched_5
+        };
 
-            // the first iteration reads from t_ycbcrOutput, the last writes to t_cronched
-            // intermediate iterations alternate between one temporary texture and the final output
-            var reverseFlow = (numberOfMips - mipIndex) % 2 == 0;
-            
-            var input_texture = mipIndex == 0 ? t_ycbcrOutput : (reverseFlow ? t_cronched : t_temporary);
-            var output_texture = reverseFlow ? t_temporary : t_cronched;
-            Cronch(context, input_texture, output_texture, levelSize, levelDescription);
-            debugFinalTexture = output_texture;
-        }
-        Debug.Assert(debugFinalTexture == t_cronched, "TrashcoreRenderPass should ultimately write to t_cronched.");
-        var cronched_height = heightPerLevel[minCronchLevel];
-        var CronchSize = new Vector2Int(2 * cronched_height, cronched_height);
+        var t_cronched = textures[minCronchLevel];
+        var CronchSize = cronchSizes[minCronchLevel];
         var cronchRankCount = CronchSize.y / 8;
         var cronchFileCount = CronchSize.x / 8;
         #endregion
@@ -224,26 +265,26 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBufferPool.Release(cmd_crunch);
         #endregion
 
-        #region IDCT ✨🎛️📈🎇 🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬
-        CommandBuffer cmd_idct = CommandBufferPool.Get("Trashhcore Idct ✨");
-        cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Input", t_temporary);
-        cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Result", t_trashedOutput);
-        cmd_idct.SetComputeFloatParams(m_computeShader, "Resolution_x", CronchSize.x);
-        cmd_idct.SetComputeFloatParams(m_computeShader, "Resolution_y", CronchSize.y);
-        cmd_idct.DispatchCompute(m_computeShader, m_kernelIndex_idct, cronchFileCount, cronchRankCount, 1);
-        context.ExecuteCommandBuffer(cmd_idct);
-        cmd_idct.Clear();
-        CommandBufferPool.Release(cmd_idct);
-        #endregion
+        // #region IDCT ✨🎛️📈🎇 🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬
+        // CommandBuffer cmd_idct = CommandBufferPool.Get("Trashhcore Idct ✨");
+        // cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Input", t_temporary);
+        // cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Result", t_trashedOutput);
+        // cmd_idct.SetComputeFloatParams(m_computeShader, "Resolution_x", CronchSize.x);
+        // cmd_idct.SetComputeFloatParams(m_computeShader, "Resolution_y", CronchSize.y);
+        // cmd_idct.DispatchCompute(m_computeShader, m_kernelIndex_idct, cronchFileCount, cronchRankCount, 1);
+        // context.ExecuteCommandBuffer(cmd_idct);
+        // cmd_idct.Clear();
+        // CommandBufferPool.Release(cmd_idct);
+        // #endregion
 
         #region COMPOSITE 🔧🛠️🖼️📸 ⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎
         CommandBuffer cmd = CommandBufferPool.Get("Trashhcore Composite");
         m_Material.SetFloat("_Intensity", m_Intensity);
-        if (false)
+        if (true)
         {
             m_Material.SetTexture("_ComputeOutput", t_cronched);
-            m_Material.SetFloat("_ComputeUScale", (float)dct_size.x / (float)CronchSize.x );
-            m_Material.SetFloat("_ComputeVScale", (float)dct_size.y / (float)CronchSize.y );
+            m_Material.SetFloat("_ComputeUScale", 1f);
+            m_Material.SetFloat("_ComputeVScale", 1f);
         }
         else
         {
