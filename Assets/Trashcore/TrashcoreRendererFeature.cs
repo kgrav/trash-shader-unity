@@ -6,11 +6,11 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
 {
     public Shader m_compositeShader;
     public ComputeShader m_computeShader;
-    public float m_Intensity;
-    public int m_Fuzz = 1;
-    public int m_Cronch = 2; 
-    public float m_Crunch = 0.2f;  // posterization levels. 0 = binary, 1.0 = 256 levels
-    private Material m_Material;
+    [Range(0.0f, 1.0f)] public float m_Intensity; // Clamped slider between 0 and 1
+    [Range(0.0f, 1.0f)] public float m_Fuzz = 1f;
+    [Range(0.0f, 1.0f)] public float m_Cronch; // Clamped slider between 0 and 1
+    [Range(0.0f, 1.0f)] public float m_Crunch = 0.2f;  // posterization levels. 0 = binary, 1.0 = 256 levels
+    private Material m_material;
     private TrashcoreRenderPass m_renderPass;
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
@@ -21,6 +21,8 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
             // ensures that the opaque texture is available to the Render Pass.
             m_renderPass.ConfigureInput(ScriptableRenderPassInput.Color);
             m_renderPass.SetIntensity(m_Intensity);
+            m_renderPass.SetCronch(m_Cronch);
+            m_renderPass.SetFuzz(m_Fuzz);
             renderer.EnqueuePass(m_renderPass);
         }
     }
@@ -28,12 +30,12 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
     public override void Create()
     {
         Debug.Assert(m_computeShader != null);
-        m_Material = CoreUtils.CreateEngineMaterial(m_compositeShader);
-        m_renderPass = new TrashcoreRenderPass(m_computeShader, m_Material);
+        m_material = CoreUtils.CreateEngineMaterial(m_compositeShader);
+        m_renderPass = new TrashcoreRenderPass(m_computeShader, m_material);
     }
 
     protected override void Dispose(bool disposing)
     {
-        CoreUtils.Destroy(m_Material);
+        CoreUtils.Destroy(m_material);
     }
 }
