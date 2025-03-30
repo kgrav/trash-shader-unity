@@ -3,11 +3,14 @@
 #pragma kernel TrashcoreDct
 #pragma kernel TrashcoreCrunch
 #pragma kernel TrashcoreIdct
+#pragma kernel TrashcoreOutput
 
 // Create a RenderTexture with enableRandomWrite flag and set it
 RWTexture2D<float4> Result;
 Texture2D<float4> Input;
 SamplerState samplerInput; // auto-gemerated by unity if name is texture plus "sampler" prefix 
+Texture2D<float4> Luma; // used only in the output shader
+Texture2D<float4> Chroma; // used only in the output shader
 
 float Resolution_x;
 float Resolution_y;
@@ -76,8 +79,9 @@ void TrashcoreCrunch (uint3 id : SV_DispatchThreadID)
     // Reduce total number of posterization levels as one gets further from DCT block origin
     int2 dct_offset = int2(id.x % 8, id.y % 8);
     float manhattanDistance = dct_offset.x + dct_offset.y; // oh yeah cuz we nasty like that
-    float frequency_falloff = lerp(1.0, 4.0, (manhattanDistance - 5.0) / (16.0 - 5.0));
-
+    float t = max(0.0, (manhattanDistance - 5.0)) / (16.0 - 5.0);
+    //float frequency_falloff = lerp(1.0, 4.0, t);
+    float frequency_falloff = 1.0;
     // actual jpeg compression uses a different formula but lets exeriment a little
     Result[id.xy] = floor(inputValue * crunch_levels / frequency_falloff) / crunch_levels * frequency_falloff;
 }
@@ -85,5 +89,59 @@ void TrashcoreCrunch (uint3 id : SV_DispatchThreadID)
 [numthreads(8,8,1)]
 void TrashcoreIdct (uint3 id : SV_DispatchThreadID)
 {
-    Result[id.xy] = Input.Load(int3(id.x, id.y, 0));
+    // id.x and id.y represent the IDCT block indices (not pixels!)
+    int2 idct_origin = int2(id.x * 8, id.y * 8);
+    float4 sum = float4(0.0, 0.0, 0.0, 1.0);
+    float4 tap0 = float4(0.0, 0.0, 0.0, 1.0);
+    float4 tap1 = float4(0.0, 0.0, 0.0, 1.0);
+    //float4 tap2 = float4(0.0, 0.0, 0.0, 1.0); 
+
+    for (int u = 0; u < 8; u++) // u and v are in texture space (output)
+    {
+        for (int v = 0; v < 8; v++)
+        {
+            float4 result = float4(0.0, 0.0, 0.0, 1.0);
+            for (int s = 0; s < 8; s++) // s and t are in frequency space (input)
+            {
+                for (int t = 0; t < 8; t++)
+                {
+                    float4 crunchedCoeficient = Input.Load(int3(idct_origin.x + s, idct_origin.y + t, 0));
+                    float cos_x = cos(((2 * u + 1) * s * 3.14159265359) / 16.0);
+                    float cos_y = cos(((2 * v + 1) * t * 3.14159265359) / 16.0);
+                    float C_s = (s == 0) ? sqrt(0.5) : 1.0;
+                    float C_t = (t == 0) ? sqrt(0.5) : 1.0;
+                    // IDCT formula
+                    result += crunchedCoeficient * cos_x * cos_y * C_s * C_t;
+                }
+            }
+            // scale the result by 0.25 (per IDCT formula)
+            result *= 0.25;
+            // write the IDCT value to the output texture
+            Result[int2(idct_origin.x + u, idct_origin.y + v)] = result;
+            // setup for the bandaid fix
+            if (u == 1 && v == 1) { tap0 = result; }
+            if (u == 7 && v == 7) { tap1 = result; }
+        }
+    }
+    // bandaid fix. the first pixel looks very green for some reason.
+    // find the three adjacent pixels on the opposite corner of the post idct transform
+    Result[int2(idct_origin.x, idct_origin.y)] = 0.5 * tap0 + 0.5 * tap1;
+}
+
+[numthreads(8,8,1)]
+void TrashcoreOutput (uint3 id : SV_DispatchThreadID)
+{
+    float chroma_x = id.x * int(Resolution_x) / 1024;
+    float chroma_y = id.y * int(Resolution_y) / 512;
+    float4 chroma = Chroma.Load(int3(chroma_x, chroma_y, 0));
+    float4 luma = Luma.Load(int3(id.xy, 0));
+    
+    float y = luma.y; // ycbcr is encoded in cr, y, cb order in rgb space 
+    float cb = chroma.b;
+    float cr = chroma.r;
+
+    float r = y + 1.402 * (cr - 0.5);
+    float g = y - 0.344136 * (cr - 0.5) - 0.714136 * (cb - 0.5);
+    float b = y + 1.772 * (cb - 0.5);
+    Result[id.xy] = float4(r, g, b, 1.0);
 }

@@ -21,6 +21,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
 
     private readonly RenderTexture t_dctCoeffs;
     private readonly RenderTexture t_crunchedCoeffs;
+    private readonly RenderTexture t_idctOutput;
     private readonly RenderTexture t_trashedOutput;
     private readonly RenderTexture t_temporary;
     private readonly int m_kernelIndex_ycbcr;
@@ -28,6 +29,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     private readonly int m_kernelIndex_dct;
     private readonly int m_kernelIndex_crunch;
     private readonly int m_kernelIndex_idct;
+    private readonly int m_kernelIndex_output;
     private Vector2Int ycbcr_size = new(1024, 512);
     // dct will run at the final cronched size. final cronch will not be larger than 512 x 256
     private Vector2Int max_dct_size = new(512, 256);
@@ -61,11 +63,10 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         t_cronched_5 = CronchTexture(size_cronch_level_5);
         
         // then perform 2d dct and posterize the values
-        (m_kernelIndex_dct,    t_dctCoeffs)      = KernelTexture(shader, "TrashcoreDct", max_dct_size);
+        (m_kernelIndex_dct,    t_dctCoeffs)      = KernelTexture(shader, "TrashcoreDct",    max_dct_size);
         (m_kernelIndex_crunch, t_crunchedCoeffs) = KernelTexture(shader, "TrashcoreCrunch", max_dct_size);
-        
-        // perform inverse dct on the results
-        t_trashedOutput = CronchTexture(max_dct_size);
+        (m_kernelIndex_idct,   t_idctOutput)     = KernelTexture(shader, "TrashcoreIdct",   max_dct_size);
+        (m_kernelIndex_output, t_trashedOutput)  = KernelTexture(shader, "TrashcoreOutput", ycbcr_size);
     }
 
     private RenderTexture CronchTexture(Vector2Int size)
@@ -251,10 +252,6 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBuffer cmd_dct = CommandBufferPool.Get("Trashhcore Dct 🧠");
         cmd_dct.SetComputeTextureParam(m_computeShader, m_kernelIndex_dct, "Input", t_cronched);
         cmd_dct.SetComputeTextureParam(m_computeShader, m_kernelIndex_dct, "Result", t_dctCoeffs);
-        cmd_dct.SetComputeFloatParams(m_computeShader, "Resolution_x", CronchSize.x);
-        cmd_dct.SetComputeFloatParams(m_computeShader, "Resolution_y", CronchSize.y);
-        int threadGroupsX = Mathf.CeilToInt(CronchSize.x / 8.0f) / 8;
-        int threadGroupsY = Mathf.CeilToInt(CronchSize.y / 8.0f) / 8;
         cmd_dct.DispatchCompute(m_computeShader, m_kernelIndex_dct, cronchFileCount, cronchRankCount, 1);
         context.ExecuteCommandBuffer(cmd_dct);
         cmd_dct.Clear();
@@ -262,14 +259,12 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         #endregion
 
         #region CRUNCH 🥣🗜️😋 aka posterize ░░▒▒▓▓░░▒▒▓▓░░▒▒▓▓░░▒▒▓▓░░▒▒▓▓░░▒▒▓▓░░▒▒▓▓
+        // convert unorm to a power relationship of range 0-1 to 2-127 levels
+        float exponent = Mathf.Lerp(1.0f, 4.85f, Mathf.Clamp01(1f - m_crunch));
+        float crunchLevels = Mathf.Round(Mathf.Pow(2.718f, exponent));
         CommandBuffer cmd_crunch = CommandBufferPool.Get("Trashhcore Crunch 🥣");        
         cmd_crunch.SetComputeTextureParam(m_computeShader, m_kernelIndex_crunch, "Input", t_dctCoeffs);
         cmd_crunch.SetComputeTextureParam(m_computeShader, m_kernelIndex_crunch, "Result", t_crunchedCoeffs);
-        cmd_crunch.SetComputeFloatParams(m_computeShader, "Resolution_x", CronchSize.x);
-        cmd_crunch.SetComputeFloatParams(m_computeShader, "Resolution_y", CronchSize.y);
-        
-        float exponent = Mathf.Lerp(1.0f, 7.0f, m_crunch);
-        float crunchLevels = Mathf.Round(Mathf.Pow(2.0f, exponent));
         cmd_crunch.SetComputeFloatParam(m_computeShader, p_crunchLevels, crunchLevels);
         cmd_crunch.DispatchCompute(m_computeShader, m_kernelIndex_crunch, 8 * cronchFileCount, 8 * cronchRankCount, 1);
         context.ExecuteCommandBuffer(cmd_crunch);
@@ -277,19 +272,30 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBufferPool.Release(cmd_crunch);
         #endregion
 
-        // #region IDCT ✨🎛️📈🎇 🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬
-        // CommandBuffer cmd_idct = CommandBufferPool.Get("Trashhcore Idct ✨");
-        // cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Input", t_temporary);
-        // cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Result", t_trashedOutput);
-        // cmd_idct.SetComputeFloatParams(m_computeShader, "Resolution_x", CronchSize.x);
-        // cmd_idct.SetComputeFloatParams(m_computeShader, "Resolution_y", CronchSize.y);
-        // cmd_idct.DispatchCompute(m_computeShader, m_kernelIndex_idct, cronchFileCount, cronchRankCount, 1);
-        // context.ExecuteCommandBuffer(cmd_idct);
-        // cmd_idct.Clear();
-        // CommandBufferPool.Release(cmd_idct);
-        // #endregion
+        #region IDCT ✨🎛️📈🎇 🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬🧬
+        CommandBuffer cmd_idct = CommandBufferPool.Get("Trashhcore Idct ✨");
+        cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Input", t_crunchedCoeffs);
+        cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Result", t_idctOutput);
+        cmd_idct.DispatchCompute(m_computeShader, m_kernelIndex_idct, cronchFileCount, cronchRankCount, 1);
+        context.ExecuteCommandBuffer(cmd_idct);
+        cmd_idct.Clear();
+        CommandBufferPool.Release(cmd_idct);
+        #endregion
 
-        #region COMPOSITE 🔧🛠️🖼️📸 ⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎
+        #region YCbCr to RGB 🔧🌀  @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        CommandBuffer cmd_output = CommandBufferPool.Get("Trashhcore YCbCr to RGB");
+        cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Result", t_trashedOutput);
+        cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Chroma", t_idctOutput);
+        cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Luma", t_ycbcrOutput);
+        cmd_output.SetComputeFloatParams(m_computeShader, "Resolution_x", CronchSize.x);
+        cmd_output.SetComputeFloatParams(m_computeShader, "Resolution_y", CronchSize.y);
+        cmd_output.DispatchCompute(m_computeShader, m_kernelIndex_output, ycbcr_size.x, ycbcr_size.y, 1);
+        context.ExecuteCommandBuffer(cmd_output);
+        cmd_output.Clear();
+        CommandBufferPool.Release(cmd_output);
+        #endregion
+
+        #region COMPOSITE 🎨🖼️📸 ⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎
         CommandBuffer cmd = CommandBufferPool.Get("Trashhcore Composite");
         m_Material.SetFloat("_Intensity", m_Intensity);
 
@@ -316,12 +322,12 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
                 m_Material.SetFloat("_ComputeVScale", max_dct_size.y / CronchSize.y);
                 break;
             case TrashcoreRendererFeature.TrashcoreDebugMode.IDCT:
-                m_Material.SetTexture("_ComputeOutput", t_trashedOutput);
+                m_Material.SetTexture("_ComputeOutput", t_idctOutput);
                 m_Material.SetFloat("_ComputeUScale", max_dct_size.x / CronchSize.x);
                 m_Material.SetFloat("_ComputeVScale", max_dct_size.y / CronchSize.y);
                 break;
             default:
-                m_Material.SetTexture("_ComputeOutput", t_cronched);
+                m_Material.SetTexture("_ComputeOutput", t_trashedOutput);
                 m_Material.SetFloat("_ComputeUScale", 1f);
                 m_Material.SetFloat("_ComputeVScale", 1f);
                 break;
@@ -334,18 +340,8 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         #endregion
     }
 
-    // public enum TrashcoreDebugMode
-    // {
-    //     None,
-    //     YCbCr,
-    //     Cronch,
-    //     DCT,
-    //     Crunch,
-    //     IDCT
-    // }
-
     private TrashcoreRendererFeature.TrashcoreDebugMode m_DebugMode 
-                = TrashcoreRendererFeature.TrashcoreDebugMode.YCbCr;
+                = TrashcoreRendererFeature.TrashcoreDebugMode.None;
     public void SetDebugMode(TrashcoreRendererFeature.TrashcoreDebugMode debugMode)
     {
         m_DebugMode = debugMode;
