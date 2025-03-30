@@ -1,6 +1,8 @@
 #pragma kernel TrashcoreYCbCr
 #pragma kernel TrashcoreCronch
 #pragma kernel TrashcoreDct
+#pragma kernel TrashcoreCrunch
+#pragma kernel TrashcoreIdct
 
 // Create a RenderTexture with enableRandomWrite flag and set it
 RWTexture2D<float4> Result;
@@ -9,6 +11,7 @@ SamplerState samplerInput; // auto-gemerated by unity if name is texture plus "s
 
 float Resolution_x;
 float Resolution_y;
+int crunch;
 
 float4 RGBToYCbCr(float4 rgba)
 {
@@ -40,28 +43,47 @@ void TrashcoreCronch (uint3 id : SV_DispatchThreadID)
 [numthreads(8,8,1)]
 void TrashcoreDct (uint3 id : SV_DispatchThreadID)
 {
-    float x = id.x / Resolution_x;
-    float y = id.y / Resolution_y;
-    Result[id.xy] = float4(x, y, 0.0, 1.0);
-    // int2 dct_origin = int2(id.x * 8, id.y * 8); // Origin of the DCT block   
-    // for (int s = 0; s < 8; s++)
-    // {
-    //     for (int t = 0; t < 8; t++)
-    //     {
-    //         float4 sum = 0.0;
-    //         for (int x = 0; x < 8; x++)
-    //         {
-    //             for (int y = 0; y < 8; y++)
-    //             {
-    //                 float4 pixelValue = Input[dct_origin.x + x, dct_origin.y + y];
-    //                 float cos_x = cos(((2 * x + 1) * u * M_PI) / 16.0);
-    //                 float cos_y = cos(((2 * y + 1) * v * M_PI) / 16.0);
-    //                 sum += pixelValue * cos_x * cos_y;
-    //             }
-    //         }
-    //         float C_u = (u == 0) ? sqrt(0.5) : 1.0;
-    //         float C_v = (v == 0) ? sqrt(0.5) : 1.0;
-    //         Result[dct_origin.x + s, dct_origin.y + t] = 0.25 * C_u * C_v * sum;
-    //     }
-    // }
+    // id.x and y represent the DCT block indices (not pixels!)
+    int2 dct_origin = int2(id.x * 8, id.y * 8);
+    for (int s = 0; s < 8; s++) // s and t are in frequency space (output)
+    {
+        for (int t = 0; t < 8; t++)
+        {
+            float4 sum = 0.0;
+            for (int u = 0; u < 8; u++)  // u and v are in texture space (input
+            {
+                for (int v = 0; v < 8; v++)
+                {
+                    float4 pixelValue = Input[int2(dct_origin.x + u, dct_origin.y + v)];
+                    float cos_x = cos(((2 * u + 1) * s * 3.14159265359) / 16.0);
+                    float cos_y = cos(((2 * v + 1) * t * 3.14159265359) / 16.0);
+                    sum += pixelValue * cos_x * cos_y;
+                }
+            }
+            float C_s = (s == 0) ? sqrt(0.5) : 1.0;
+            float C_t = (t == 0) ? sqrt(0.5) : 1.0;
+            Result[int2(dct_origin.x + s, dct_origin.y + t)] = 0.25 * C_s * C_t * sum;
+        }
+    }
+}
+
+[numthreads(8,8,1)]
+void TrashcoreCrunch (uint3 id : SV_DispatchThreadID)
+{
+    float4 inputValue = Input.Load(int3(id.x, id.y, 0));
+
+    // Reduce total number of posterization levels as one gets further from DCT block origin
+    int2 dct_offset = int2(id.x % 8, id.y % 8);
+    float manhattanDistance = dct_offset.x + dct_offset.y; // oh yeah cuz we nasty like that
+    float frequency_falloff = lerp(1.0, 8.0, (manhattanDistance - 5.0) / (16.0 - 5.0));
+
+    // actual jpeg compression uses a different formula but lets exeriment a little
+    float f_crunch = float(crunch);
+    Result[id.xy] = floor(inputValue * f_crunch / frequency_falloff) / f_crunch * frequency_falloff;
+}
+
+[numthreads(8,8,1)]
+void TrashcoreIdct (uint3 id : SV_DispatchThreadID)
+{
+    Result[id.xy] = Input.Load(int3(id.x, id.y, 0));
 }
