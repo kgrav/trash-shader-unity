@@ -11,6 +11,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     private RenderTexture m_computeOutput;
     private readonly ComputeShader m_computeShader;
     private int m_kernelIndex_dct;
+    private Vector2Int dct_size = new(1024, 512);
 
     public TrashcoreRenderPass(ComputeShader computeShader, Material material)
     {
@@ -18,7 +19,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         m_Material = material;
         renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
         m_kernelIndex_dct = computeShader.FindKernel("CSMain");
-		m_computeOutput = new RenderTexture(1024, 512, 24)
+		m_computeOutput = new RenderTexture(dct_size.x, dct_size.y, 24)
 		{
 			enableRandomWrite = true
 		};
@@ -33,20 +34,17 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     public override void Execute(ScriptableRenderContext context,
                                     ref RenderingData renderingData)
     {
-        
         var camera = renderingData.cameraData.camera;
         if (camera.cameraType != CameraType.Game) return;
 
         RenderTargetIdentifier cameraColorTarget = renderingData.cameraData.renderer.cameraColorTarget;
-        var width = renderingData.cameraData.cameraTargetDescriptor.width;
-        var height = renderingData.cameraData.cameraTargetDescriptor.height;
         CommandBuffer cmd_dct = CommandBufferPool.Get("Trashhcore Compute");
         cmd_dct.SetComputeTextureParam(m_computeShader, m_kernelIndex_dct, "Input", cameraColorTarget);
         cmd_dct.SetComputeTextureParam(m_computeShader, m_kernelIndex_dct, "Result", m_computeOutput);
-        cmd_dct.SetComputeFloatParams(m_computeShader, "Resolution_x", width);
-        cmd_dct.SetComputeFloatParams(m_computeShader, "Resolution_y", height);
-        int threadGroupsX = Mathf.CeilToInt(width / 8.0f);
-        int threadGroupsY = Mathf.CeilToInt(height / 8.0f);
+        cmd_dct.SetComputeFloatParams(m_computeShader, "Resolution_x", dct_size.x);
+        cmd_dct.SetComputeFloatParams(m_computeShader, "Resolution_y", dct_size.y);
+        int threadGroupsX = Mathf.CeilToInt(dct_size.x / 8.0f);
+        int threadGroupsY = Mathf.CeilToInt(dct_size.y / 8.0f);
         cmd_dct.DispatchCompute(m_computeShader, m_kernelIndex_dct, threadGroupsX, threadGroupsY, 1);
         context.ExecuteCommandBuffer(cmd_dct);
         CommandBufferPool.Release(cmd_dct);

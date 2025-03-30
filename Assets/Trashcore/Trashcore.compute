@@ -3,6 +3,7 @@
 // Create a RenderTexture with enableRandomWrite flag and set it
 RWTexture2D<float4> Result;
 Texture2D<float4> Input;
+SamplerState samplerInput; // auto-gemerated by unity if name is texture plus "sampler" prefix 
 
 float Resolution_x;
 float Resolution_y;
@@ -17,10 +18,14 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     int offset = (int)(-y * Resolution_x / 2.0);
     int shifted_x = id.x + offset;
 
+    float4 inputColor = Input.SampleLevel(samplerInput, float2(x, y), 0);
+
+    float value = inputColor.b > 0.1? 1.0 : 0.0;
+
     Result[id.xy] = float4(
-        shifted_x & id.y,
-        x * y,//(id.x & 15)/15.0,
-        (id.y & 15)/15.0,
-        0.0
+        value,
+        value,
+        value,
+        1.0
     );
 }

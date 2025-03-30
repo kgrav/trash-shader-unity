@@ -58,9 +58,9 @@ Shader "TrashcoreComposite"
                 float4 color = SAMPLE_TEXTURE2D_X(_CameraOpaqueTexture, sampler_CameraOpaqueTexture, input.uv);
 				float4 computeColor = SAMPLE_TEXTURE2D_X(_ComputeOutput, sampler_ComputeOutput, input.uv);
 				
-                float t = clamp(1.0 - computeColor.r, 0.0, 1.0);
-                float green = lerp(color.g, 1.0 - color.g, t);
-                float4 result = float4(color.r, green, color.b, 1.0);
+                //float t = clamp(1.0 - computeColor.r, 0.0, 1.0);
+                //float green = lerp(color.g, 1.0 - color.g, t);
+                float4 result = color + computeColor;
                 return result * float4(1.0 - _Intensity, _Intensity, 1.0 - _Intensity, 1.0);
             }
             ENDHLSL
