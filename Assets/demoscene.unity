@@ -352,7 +352,7 @@ GameObject:
   - component: {fileID: 333503760}
   - component: {fileID: 333503759}
   m_Layer: 0
-  m_Name: Compute
+  m_Name: TrashcoreCompute
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -367,11 +367,11 @@ MonoBehaviour:
   m_GameObject: {fileID: 333503758}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 182cc14c4e53fc3428555de493b81c1c, type: 3}
+  m_Script: {fileID: 11500000, guid: 2c453654967a56443b17a69eaf811859, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  computeShader: {fileID: 7200000, guid: 47c73c92fb3139947a7cebb699c76685, type: 3}
-  renderTexture: {fileID: 0}
+  computeShader: {fileID: 7200000, guid: 1be642e712daafd4da3f4a24813b5ca9, type: 3}
+  outputTexture: {fileID: 0}
 --- !u!64 &333503760
 MeshCollider:
   m_ObjectHideFlags: 0
