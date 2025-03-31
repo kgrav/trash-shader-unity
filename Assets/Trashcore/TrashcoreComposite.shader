@@ -50,7 +50,7 @@ Shader "TrashcoreComposite"
 			TEXTURE2D_X(_ComputeOutput);
 			SAMPLER(sampler_ComputeOutput);
 
-            float _Intensity;
+            float _BlendWithOriginal;
             float _ComputeUScale;
             float _ComputeVScale;
 
@@ -62,7 +62,7 @@ Shader "TrashcoreComposite"
                 float2 computeUV = float2(input.uv.x / u_scale, input.uv.y / v_scale);
                 float4 computeColor = SAMPLE_TEXTURE2D_X(_ComputeOutput, sampler_ComputeOutput, computeUV);
                 float4 cameraColor = SAMPLE_TEXTURE2D_X(_CameraOpaqueTexture, sampler_CameraOpaqueTexture, input.uv);
-                return lerp(cameraColor, computeColor, _Intensity);
+                return lerp(cameraColor, computeColor, _BlendWithOriginal);
             }
             ENDHLSL
         }

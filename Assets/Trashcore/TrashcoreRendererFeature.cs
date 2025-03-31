@@ -7,16 +7,17 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
     public Shader m_compositeShader;
     public ComputeShader m_computeShader;
     //[Range(0.0f, 1.0f)] public float m_Intensity; // Clamped slider between 0 and 1
-    private float m_Intensity = 1f;
-    [Range(0.0f, 1.0f)] public float m_Fuzz = 1f;
-    [Range(0.0f, 1.0f)] public float m_Cronch; // Clamped slider between 0 and 1
+    [Range(-1f, 2f)] public float m_BlendWithOriginal = 1f;
+    [Range(0, 5)] public int m_Cronch;
     [Range(0.0f, 1.0f)] public float m_Crunch = 0.2f;  // posterization levels. 0 = binary, 1.0 = 256 levels
+    [Range(0.0f, 1.0f)] public float m_Fuzz = 1f;
     public Juice m_Juice = Juice.HeavyPulpOhYeahBabay;
     private Material m_material;
+    public OutputMode m_OutputMode;
     private TrashcoreRenderPass m_renderPass;
-    public enum TrashcoreDebugMode
+    public enum OutputMode
     {
-        None,
+        FinalResult,
         YCbCr,
         Cronch,
         DCT,
@@ -30,7 +31,7 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
         HeavyPulpOhYeahBabay,
     }
 
-    public TrashcoreDebugMode m_DebugMode;
+
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
@@ -39,11 +40,11 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
             // Calling ConfigureInput with the ScriptableRenderPassInput.Color argument
             // ensures that the opaque texture is available to the Render Pass.
             m_renderPass.ConfigureInput(ScriptableRenderPassInput.Color);
-            m_renderPass.SetIntensity(m_Intensity);
+            m_renderPass.SetBlendWithOriginal(m_BlendWithOriginal);
             m_renderPass.SetCronch(m_Cronch);
             m_renderPass.SetCrunch(m_Crunch);
             m_renderPass.SetFuzz(m_Fuzz);
-            m_renderPass.SetDebugMode(m_DebugMode);
+            m_renderPass.SetOutputMode(m_OutputMode);
             m_renderPass.SetJuice((int)m_Juice);
             renderer.EnqueuePass(m_renderPass);
         }

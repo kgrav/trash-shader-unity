@@ -6,7 +6,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
 {
     private readonly ComputeShader m_computeShader;
 	readonly Material m_Material;
-    float m_Intensity;
+    private readonly int p_blend = Shader.PropertyToID("_BlendWithOriginal");
     private readonly int p_crunchLevels = Shader.PropertyToID("crunch_levels");
     private readonly int p_juice = Shader.PropertyToID("juice");
     private readonly RenderTexture t_ycbcrOutput;
@@ -41,10 +41,12 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     private static Vector2Int size_cronch_level_3 = new(64, 32);
     private static Vector2Int size_cronch_level_4 = new(32, 16);
     private static Vector2Int size_cronch_level_5 = new(16, 8);
-    private float m_cronch = 1f;
+    private float m_blendWithOriginal = 0.0f;
+    private int m_cronch;
     private float m_crunch = 0.2f; // posterization levels. 0 = binary, 1.0 = 256 levels
     private float m_fuzz = 1f;
     private int m_juice = 8;
+    private TrashcoreRendererFeature.OutputMode m_outputMode;
 
     public TrashcoreRenderPass(ComputeShader computeShader, Material material)
     {
@@ -107,14 +109,21 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         renderTexture.Create();
         return (kernelIndex, renderTexture);
     }
-
-    public void SetCronch(float cronch)
+    public void SetBlendWithOriginal(float blend_with_original)
+    {
+        m_blendWithOriginal = blend_with_original;
+    }
+    public void SetCronch(int cronch)
     {
         m_cronch = cronch;
     }
     public void SetCrunch(float crunch)
     {
         m_crunch = crunch;
+    }
+    public void SetOutputMode(TrashcoreRendererFeature.OutputMode outputMode)
+    {
+        m_outputMode = outputMode;
     }
     public void SetFuzz(float fuzz)
     {
@@ -126,10 +135,6 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         Debug.Assert(0 <= juice_factor  && juice_factor <= 8, 
             $"TrashcoreRenderPass: {juice_factor} must be between 0 and 2 inclusive, clamp the editor slider in feature.");
     }   
-    public void SetIntensity(float intensity)
-    {
-        m_Intensity = intensity;
-    }
 
     // Cronch = chroma subsampling
     protected void Cronch(ScriptableRenderContext context,
@@ -220,9 +225,8 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         // map the input scalar to an integer from 5 to zero, cronched output height in pixels is equal 
         // to 8 * (1 << clampedCronch). minCronchLevel is the coarsest resolution to which we will process.
         
-        int minCronchLevel = (int)((6f - 1e-3f) * m_cronch);
-        Debug.Assert(minCronchLevel >= 0 && minCronchLevel <= CRONCH_MAX_LEVEL, 
-            $"TrashcoreRenderPass: Invalid cronch level {minCronchLevel}. Must be between 0 and {CRONCH_MAX_LEVEL}.");
+        Debug.Assert(m_cronch >= 0 && m_cronch <= CRONCH_MAX_LEVEL, 
+            $"TrashcoreRenderPass: Invalid cronch level {m_cronch}. Must be between 0 and {CRONCH_MAX_LEVEL}.");
         
         // cronch level 0 has a height = 8 pixels, i.e. is one dct block.
         //      cronch level 1: h = 16 pixels
@@ -250,8 +254,8 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
             t_cronched_5
         };
 
-        var t_cronched = textures[minCronchLevel];
-        var CronchSize = cronchSizes[minCronchLevel];
+        var t_cronched = textures[m_cronch];
+        var CronchSize = cronchSizes[m_cronch];
         var cronchRankCount = CronchSize.y / 8;
         var cronchFileCount = CronchSize.x / 8;
         #endregion
@@ -307,31 +311,31 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
 
         #region COMPOSITE 🎨🖼️📸 ⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎
         CommandBuffer cmd = CommandBufferPool.Get("Trashhcore Composite");
-        m_Material.SetFloat("_Intensity", m_Intensity);
+        m_Material.SetFloat(p_blend, m_blendWithOriginal);
 
-        switch (m_DebugMode)
+        switch (m_outputMode)
         {
-            case TrashcoreRendererFeature.TrashcoreDebugMode.YCbCr:
+            case TrashcoreRendererFeature.OutputMode.YCbCr:
                 m_Material.SetTexture("_ComputeOutput", t_ycbcrOutput);
                 m_Material.SetFloat("_ComputeUScale", 1.0f);
                 m_Material.SetFloat("_ComputeVScale", 1.0f);
                 break;
-            case TrashcoreRendererFeature.TrashcoreDebugMode.Cronch:
+            case TrashcoreRendererFeature.OutputMode.Cronch:
                 m_Material.SetTexture("_ComputeOutput", t_cronched);
                 m_Material.SetFloat("_ComputeUScale", 1f);
                 m_Material.SetFloat("_ComputeVScale", 1f);
                 break;
-            case TrashcoreRendererFeature.TrashcoreDebugMode.DCT:
+            case TrashcoreRendererFeature.OutputMode.DCT:
                 m_Material.SetTexture("_ComputeOutput", t_dctCoeffs);
                 m_Material.SetFloat("_ComputeUScale", max_dct_size.x / CronchSize.x);
                 m_Material.SetFloat("_ComputeVScale", max_dct_size.y / CronchSize.y);
                 break;
-            case TrashcoreRendererFeature.TrashcoreDebugMode.Crunch:
+            case TrashcoreRendererFeature.OutputMode.Crunch:
                 m_Material.SetTexture("_ComputeOutput", t_crunchedCoeffs);
                 m_Material.SetFloat("_ComputeUScale", max_dct_size.x / CronchSize.x);
                 m_Material.SetFloat("_ComputeVScale", max_dct_size.y / CronchSize.y);
                 break;
-            case TrashcoreRendererFeature.TrashcoreDebugMode.IDCT:
+            case TrashcoreRendererFeature.OutputMode.IDCT:
                 m_Material.SetTexture("_ComputeOutput", t_idctOutput);
                 m_Material.SetFloat("_ComputeUScale", max_dct_size.x / CronchSize.x);
                 m_Material.SetFloat("_ComputeVScale", max_dct_size.y / CronchSize.y);
@@ -348,12 +352,5 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         cmd.Clear();
         CommandBufferPool.Release(cmd);
         #endregion
-    }
-
-    private TrashcoreRendererFeature.TrashcoreDebugMode m_DebugMode 
-                = TrashcoreRendererFeature.TrashcoreDebugMode.None;
-    public void SetDebugMode(TrashcoreRendererFeature.TrashcoreDebugMode debugMode)
-    {
-        m_DebugMode = debugMode;
     }
 }
