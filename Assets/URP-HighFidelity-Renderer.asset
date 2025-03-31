@@ -30,11 +30,11 @@ MonoBehaviour:
   m_Active: 1
   m_compositeShader: {fileID: 4800000, guid: 7a537a5828828664eb6a0bd292efb910, type: 3}
   m_computeShader: {fileID: 7200000, guid: 1be642e712daafd4da3f4a24813b5ca9, type: 3}
-  m_BlendWithOriginal: 0.6
+  m_BlendWithOriginal: 0.9
   m_Cronch: 2
   m_Crunch: 1
-  m_Fuzz: 0.585
-  m_Juice: 2
+  m_Fuzz: 1
+  m_Juice: 0
   m_OutputMode: 5
 --- !u!114 &-1878332245247344467
 MonoBehaviour:
