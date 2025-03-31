@@ -1,5 +1,4 @@
-#pragma kernel Nihilism1D // operates on th4 green channel only 
-//#pragma kernel NihilismSIMD
+#pragma kernel NihilismSingleChannel // operates on th4 green channel only 
 #pragma kernel TrashcoreUnfuzz
 
 RWTexture2D<float4> Result; // used by all
@@ -7,9 +6,11 @@ Texture2D<float4> Input; // used by all
 Texture2D<float4> Chroma; // used only in the output shader, TrashcoreUnfuzz
 Texture2D<float4> Fuzz; // used only in the output shader, TrashcoreUnfuzz
 float posterize_levels; // used only in the nihilism shaders
-uint nihilism_block_size; // used by all
-uint resolution_ix; // output shader only
-uint resolution_iy; // output shader only
+int nihilism_block_size; // used by all
+int zresolution_ix; // output shader only
+int resolution_iy; // output shader only
+int t_fuzz_width; // nihilism shader only
+int t_fuzz_height; // nihilism shader only
 
 // assert in cpu-side script that result.width * nihilism_block_size == input.width 
 // assert in cpu-side script that result.height * nihilism_block_size == input.height
@@ -24,52 +25,63 @@ uint resolution_iy; // output shader only
 
 // finally store the four floats to the fuzz texture and then get lost, scram kid
 
-float Posterize(float value, float levels)
-{
-	return floor(value * levels) / levels;
-}
-
 [numthreads(8,8,1)]
-void Nihilism1D (uint3 id : SV_DispatchThreadID)
+void NihilismSingleChannel (uint3 id : SV_DispatchThreadID)
 {	
+	// the size of the fuzz output pixels is not necessarily divisible by 8. cull if we're out of bounds 
+	if (id.x >= uint(t_fuzz_width) || id.y >= uint(t_fuzz_height)) return;
 
 	// input coordinate is the pixel coordinate in the input texture
 	uint block_rank = uint(id.y);
+	uint block_size = uint(nihilism_block_size); // unity warns of using int divides and mod and recommended using uint instead
 	// offset by half of a block width for even rows. alternate integer rounding to stagger when the block size is odd
-	int offset_x = (block_rank % 2 == 1) ? 0 : (block_rank % 4 == 0 ? (nihilism_block_size - nihilism_block_size / 2) 
-																	: (nihilism_block_size / 2));
-	int2 block_origin = int2(id.xy * nihilism_block_size) + int2(offset_x, 0);
+	int offset_x = (block_rank % 2 == 1)
+						? 0
+						: (block_rank % 4 == 0
+								? (block_size - block_size / 2) 
+								: (block_size / 2));
+	
+	int3 block_origin = int3(id.x * block_size + offset_x,
+							 id.y * block_size,
+							 0);
 	
 	// create values for to record locations of brightest and darkest pixels
 	float shadow_value = 1e7;
 	float bright_value = -1e7;
 	int2 shadow_uv = int2(0, 0);
-	int2 bright_uv = int2(nihilism_block_size, nihilism_block_size);
+	int2 bright_uv = int2(block_size - 1, nihilism_block_size - 1);
 
-	for (uint u = 0; u < nihilism_block_size; u++)
+	for (uint u = 0; u < block_size; u++)
 	{
-		uint input_x = block_origin.x + u;
-		if (input_x >= resolution_ix) input_x -= resolution_ix; // <----- WRAPPING ------<<
-		for (uint v = 0; v < nihilism_block_size; v++)
+		int input_x = block_origin.x + u;
+		if (input_x >= zresolution_ix) input_x = zresolution_ix - 1; // <----- WRAPPING ------<<
+		if (input_x < 10) input_x = 10; // for debugging porpoises
+
+		for (uint v = 0; v < block_size; v++)
 		{
-			float4 input_value = Input.Load(int3(block_origin.x + u, block_origin.y + v, 0));
+			float4 input_value = Input.Load(int3(input_x, block_origin.y + v, 0));
 			float we_only_care_about_green = input_value.g;
 			if (we_only_care_about_green > bright_value)
 			{
 				bright_value = we_only_care_about_green;
 				bright_uv = int2(u, v);
 			}
-			if (we_only_care_about_green < shadow_value)
+			else if (we_only_care_about_green < shadow_value)
 			{
 				shadow_value = we_only_care_about_green;
 				shadow_uv = int2(u, v);
 			}
 		}
 	}
-	float posterized_bright_value = Posterize(bright_value, posterize_levels);
-	float posterized_shadow_value = Posterize(shadow_value, posterize_levels);
+	float posterized_bright_value = floor(bright_value * posterize_levels) / posterize_levels;
+	float posterized_shadow_value = floor(shadow_value * posterize_levels) / posterize_levels;
 	float bright_uv_f = float(bright_uv.x + bright_uv.y * nihilism_block_size);
 	float shadow_uv_f = float(shadow_uv.x + shadow_uv.y * nihilism_block_size);
+	
+	// float r = float(id.x) / float(t_fuzz_width);
+	// float g = float(id.y) / float(t_fuzz_height);
+	// float b = 0.5;
+	// Result[id.xy] = float4(r, g, b, 1); // initialize to zero to avoid garbage values
 	Result[id.xy] = float4(bright_value, bright_uv_f, shadow_value, shadow_uv_f);
 }
 
@@ -86,16 +98,22 @@ int2 uv_f_to_int2(float uv_f, uint block_size)
 void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 {
 	// dont read dimensions of texture since the compute shaders only write part of them
-    int chroma_x = id.x * resolution_ix / 1024;
+    int chroma_x = id.x * zresolution_ix / 1024;
     int chroma_y = id.y * resolution_iy / 512;
     float4 chroma = Chroma.Load(int3(chroma_x, chroma_y, 0));
     /////////////////// ABOVE is copied from TrashcoreOutput  ////////////////////
 	//////////////////////////////////////////////////////////////////////////////
 	
 
-	uint block_rank = uint(id.y / nihilism_block_size);
-	int offset_x = (block_rank % 2 == 1) ? 0 : (block_rank % 4 == 0 ? (nihilism_block_size - nihilism_block_size / 2) 
-														            : (nihilism_block_size / 2));
+	// this part is different, compute y from gradient rather than texel fetch from source ycbcr texture
+	uint block_size = uint(nihilism_block_size); // unity warns of using int divides and mod and recommended using uint instead
+	uint block_rank = uint(id.y / nihilism_block_size); // row id
+	// reverse the stagger from nihilism encoder. offset every even row by half of a block width
+	int offset_x = (block_rank % 2 == 1) 
+						? 0
+						: (block_rank % 4 == 0
+								? (block_size - block_size / 2) 
+								: (block_size / 2));
 
 	int3 fuzz_origin = int3((id.x - offset_x) / nihilism_block_size, id.y / nihilism_block_size, 0);
 	float4 fuzz_value = Fuzz.Load(fuzz_origin);
@@ -108,26 +126,40 @@ void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 	int2 bright_uv = uv_f_to_int2(bright_uv_f, nihilism_block_size);
 	int2 shadow_uv = uv_f_to_int2(shadow_uv_f, nihilism_block_size);
 
-	int2 block_origin = int2(id.x - offset_x, id.y);
+	uint this_pixel_x = id.x - offset_x;
+	if (this_pixel_x < 0) this_pixel_x = 0; // <----- CLAMP ------<<
+	int2 this_uv = int2(this_pixel_x % block_size, id.y % block_size);
 
 	// Calculate the distance between bright_uv and shadow_uv
-	float2 bright_to_shadow = float2(bright_uv - shadow_uv);
-	int2 shadow_pixel_uv = shadow_uv + block_origin;
-	float2 this_to_shadow = float2(block_origin - shadow_pixel_uv);
-	float numerator = dot(this_to_shadow, normalize(bright_to_shadow));
-	float denominator = length(bright_to_shadow);
+	float2 shadow_to_bright = float2(bright_uv - shadow_uv);
+	float2 this_to_bright = float2(this_uv - bright_uv);
+	float2 this_to_dark = float2(this_uv - shadow_uv);
+
+	// shadow_uv and bright_uv distance is guaranteed to be greater than zero by the encoder logic
+	float gradient_length = length(shadow_to_bright);
+	float distance_to_bright = length(this_to_bright);
+	float distance_to_dark = length(this_to_dark);
 	
-	float t = abs(denominator) > 1e-4 ? clamp(numerator / denominator, 0.0, 1.0) : 1.0;
-	float y = t * bright_value + (1.0 - t) * shadow_value;
 	
-	
+	float t = distance_to_dark / gradient_length;
+	t = clamp(t, 0.0, 1.0); // <----- CLAMP ------<<
+	float y = lerp(shadow_value, bright_value, t);
+
+	// float t = distance_to_bright / gradient_length;
+	// t = clamp(t, 0.0, 1.0); // <----- CLAMP ------<<
+	// float y = lerp(bright_value, shadow_value, t);
+
 	//////////////////////////////////////////////////////////////////////////////
 	////////////////// REMAINDER is copied from TrashcoreOutput  /////////////////
 	float cb = chroma.b;
     float cr = chroma.r;
 
+	// cb = 0.5;
+	// cr = 0.5;
+
     float r = y + 1.402 * (cr - 0.5);
     float g = y - 0.344136 * (cr - 0.5) - 0.714136 * (cb - 0.5);
     float b = y + 1.772 * (cb - 0.5);
+
     Result[id.xy] = float4(r, g, b, 1.0);
 }
