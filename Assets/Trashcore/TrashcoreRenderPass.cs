@@ -5,12 +5,19 @@ using UnityEngine.Rendering.Universal;
 internal class TrashcoreRenderPass : ScriptableRenderPass
 {
     private readonly ComputeShader m_computeShader;
+    private readonly ComputeShader m_nihilismShader;
 	readonly Material m_Material;
     private readonly int p_blend = Shader.PropertyToID("_BlendWithOriginal");
     private readonly int p_crunchLevels = Shader.PropertyToID("crunch_levels");
+    private readonly int p_fuzz_size = Shader.PropertyToID("nihilism_block_size");
+    private readonly int p_fuzz_levels = Shader.PropertyToID("posterize_levels");
     private readonly int p_juice = Shader.PropertyToID("juice");
     private readonly int p_resolution_x = Shader.PropertyToID("Resolution_x");
-    private readonly RenderTexture t_ycbcrOutput;
+    private readonly int p_resolution_y = Shader.PropertyToID("Resolution_y");
+    private readonly int p_resolution_ix = Shader.PropertyToID("resolution_ix");
+    private readonly int p_resolution_iy = Shader.PropertyToID("resolution_iy");
+
+
     // originally this was implemented with just one temporary and one output texture,
     // but after wasting more than two hours trying to debug, rewrote in vulgar form
     // like you see here and it worked perfectly the first time. :shrug: 
@@ -21,17 +28,21 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     private readonly RenderTexture t_cronched_4;
     private readonly RenderTexture t_cronched_5;
 
-    private readonly RenderTexture t_dctCoeffs;
     private readonly RenderTexture t_crunchedCoeffs;
+    private readonly RenderTexture t_dctCoeffs;
+    private readonly RenderTexture t_fuzz;
     private readonly RenderTexture t_idctOutput;
-    private readonly RenderTexture t_trashedOutput;
     private readonly RenderTexture t_temporary;
-    private readonly int m_kernelIndex_ycbcr;
+    private readonly RenderTexture t_trashedOutput;
+    private readonly RenderTexture t_ycbcrOutput;
     private readonly int m_kernelIndex_cronch;
-    private readonly int m_kernelIndex_dct;
     private readonly int m_kernelIndex_crunch;
+    private readonly int m_kernelIndex_dct;
+    private readonly int m_kernelIndex_fuzz;
     private readonly int m_kernelIndex_idct;
     private readonly int m_kernelIndex_output;
+    private readonly int m_kernelIndex_unfuzz = 0;
+    private readonly int m_kernelIndex_ycbcr;
     private Vector2Int ycbcr_size = new(1024, 512);
     // dct will run at the final cronched size. final cronch will not be larger than 512 x 256
     private Vector2Int max_dct_size = new(512, 256);
@@ -45,13 +56,14 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     private float m_blendWithOriginal = 0.0f;
     private int m_cronch;
     private float m_crunch = 0.2f; // posterization levels. 0 = binary, 1.0 = 256 levels
-    private float m_fuzz = 1f;
+    private int m_fuzz = 1;
     private int m_juice = 8;
     private TrashcoreRendererFeature.OutputMode m_outputMode;
 
-    public TrashcoreRenderPass(ComputeShader computeShader, Material material)
+    public TrashcoreRenderPass(ComputeShader computeShader, ComputeShader nihilismShader, Material material)
     {
         m_computeShader = computeShader;
+        m_nihilismShader = nihilismShader;
         m_Material = material;
         renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
         var shader = computeShader;
@@ -72,6 +84,12 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         (m_kernelIndex_crunch, t_crunchedCoeffs) = KernelTexture(shader, "TrashcoreCrunch", max_dct_size);
         (m_kernelIndex_idct,   t_idctOutput)     = KernelTexture(shader, "TrashcoreIdct",   max_dct_size);
         (m_kernelIndex_output, t_trashedOutput)  = KernelTexture(shader, "TrashcoreOutput", ycbcr_size);
+        (m_kernelIndex_fuzz,   t_fuzz)           = KernelTexture(nihilismShader, "Nihilism1D", max_dct_size);
+        
+        // the fuzz kernel is the same as 'm_kernelIndex_output'
+        //    - except that it computes brightness from fuzz texture instead of y from ycbcr full res
+
+        m_kernelIndex_unfuzz = nihilismShader.FindKernel("TrashcoreUnfuzz"); 
     }
 
     private RenderTexture CronchTexture(Vector2Int size)
@@ -126,7 +144,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     {
         m_outputMode = outputMode;
     }
-    public void SetFuzz(float fuzz)
+    public void SetFuzz(int fuzz)
     {
         m_fuzz = fuzz;
     }
@@ -148,7 +166,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         cmd.SetComputeTextureParam(m_computeShader, m_kernelIndex_cronch, "Input", fromTexture);
         cmd.SetComputeTextureParam(m_computeShader, m_kernelIndex_cronch, "Result", toTexture);
         cmd.SetComputeFloatParam(m_computeShader, p_resolution_x, outputSize.x);
-        cmd.SetComputeFloatParams(m_computeShader, "Resolution_y", outputSize.y);
+        cmd.SetComputeFloatParam(m_computeShader, p_resolution_y, outputSize.y);
         int ranks = Mathf.CeilToInt(outputSize.x / 8.0f);
         int files = Mathf.CeilToInt(outputSize.y / 8.0f);
         cmd.DispatchCompute(m_computeShader, m_kernelIndex_cronch, ranks, files, 1);
@@ -171,7 +189,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         cmd.SetComputeTextureParam(m_computeShader, m_kernelIndex_crunch, "Input", fromTexture);
         cmd.SetComputeTextureParam(m_computeShader, m_kernelIndex_crunch, "Result", toTexture);
         cmd.SetComputeFloatParam(m_computeShader, p_resolution_x, outputSize.x);
-        cmd.SetComputeFloatParams(m_computeShader, "Resolution_y", outputSize.y);
+        cmd.SetComputeFloatParam(m_computeShader, p_resolution_y, outputSize.y);
         cmd.SetComputeFloatParams(m_computeShader, "Crunch", number_of_levels);
         int crunch_ranks = Mathf.CeilToInt(outputSize.x / 8.0f);
         int crunch_files = Mathf.CeilToInt(outputSize.y / 8.0f);
@@ -203,12 +221,33 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         cmd_ycbcr.SetComputeTextureParam(m_computeShader, m_kernelIndex_ycbcr, "Result", t_ycbcrOutput);
         cmd_ycbcr.SetComputeFloatParam(m_computeShader, p_resolution_x, ycbcr_size.x);
         cmd_ycbcr.SetComputeFloatParams(m_computeShader, "Resolution_y", ycbcr_size.y);
-        int ycbcr_ranks = Mathf.CeilToInt(ycbcr_size.x / 8.0f); // rows
-        int ycbcr_files = Mathf.CeilToInt(ycbcr_size.y / 8.0f); // columns
-        cmd_ycbcr.DispatchCompute(m_computeShader, m_kernelIndex_ycbcr, ycbcr_ranks, ycbcr_files, 1);
+        int ycbcr_ranks = Mathf.CeilToInt(ycbcr_size.y / 8.0f); // rows
+        int ycbcr_files = Mathf.CeilToInt(ycbcr_size.x / 8.0f); // columns
+        cmd_ycbcr.DispatchCompute(m_computeShader, m_kernelIndex_ycbcr, ycbcr_files, ycbcr_ranks, 1);
         context.ExecuteCommandBuffer(cmd_ycbcr);
         cmd_ycbcr.Clear();
         CommandBufferPool.Release(cmd_ycbcr);
+        #endregion
+
+        #region FUZZ 🧸 ▲■■■■▲△■□□▲■■▲□▲▲▲□■■■■▲△■■■□■■■■▲△▲□■■■▲▲▲▲□▲■■■■■▲△▲■□□■■■□▲
+        bool fuzzy = m_fuzz > 1;
+        if (fuzzy)
+        {
+            float t = (float)(7 - m_fuzz);
+            float fuzz_exponent = Mathf.Lerp(2.0f, 6.0f, Mathf.Clamp01(t / 7.0f));
+            int fuzz_ranks = Mathf.CeilToInt(ycbcr_size.x / (float)m_fuzz / 8.0f); // rows
+            int fuzz_files = Mathf.CeilToInt(ycbcr_size.y / (float)m_fuzz / 8.0f); // columns
+            CommandBuffer cmd_fuzz = CommandBufferPool.Get("Trashhcore Fuzz");
+            cmd_fuzz.SetComputeTextureParam(m_nihilismShader, 0, "Input", t_ycbcrOutput);
+            cmd_fuzz.SetComputeTextureParam(m_nihilismShader, 0, "Result", t_fuzz);
+            cmd_fuzz.SetComputeIntParam(m_nihilismShader, p_resolution_ix, ycbcr_size.x);
+            cmd_fuzz.SetComputeIntParam(m_nihilismShader, p_fuzz_size, m_fuzz);
+            cmd_fuzz.SetComputeFloatParam(m_nihilismShader, p_fuzz_levels, Mathf.Pow(2.0f, fuzz_exponent));
+            cmd_fuzz.DispatchCompute(m_nihilismShader, m_kernelIndex_fuzz, fuzz_files, fuzz_ranks, 1);
+            context.ExecuteCommandBuffer(cmd_fuzz);
+            cmd_fuzz.Clear();
+            CommandBufferPool.Release(cmd_fuzz);
+        }
         #endregion
 
         // cronch levels are mipmaps but count up from zero = pixel height of 8,
@@ -291,9 +330,9 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBuffer cmd_idct = CommandBufferPool.Get("Trashhcore Idct ✨");
         cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Input", t_crunchedCoeffs);
         cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Result", t_idctOutput);
-        cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Chroma", t_ycbcrOutput);
+        cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Original", t_ycbcrOutput);
         cmd_idct.SetComputeIntParam(m_computeShader, p_juice, m_juice);
-        cmd_dct.SetComputeFloatParam(m_computeShader, p_resolution_x, CronchSize.x);
+        cmd_idct.SetComputeFloatParam(m_computeShader, p_resolution_x, CronchSize.x);
         cmd_idct.DispatchCompute(m_computeShader, m_kernelIndex_idct, cronchFileCount, cronchRankCount, 1);
         context.ExecuteCommandBuffer(cmd_idct);
         cmd_idct.Clear();
@@ -302,12 +341,25 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
 
         #region YCbCr to RGB 🔧🌀  @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         CommandBuffer cmd_output = CommandBufferPool.Get("Trashhcore YCbCr to RGB");
-        cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Result", t_trashedOutput);
-        cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Chroma", t_idctOutput);
-        cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Luma", t_ycbcrOutput);
-        cmd_output.SetComputeFloatParam(m_computeShader, p_resolution_x, CronchSize.x);
-        cmd_output.SetComputeFloatParams(m_computeShader, "Resolution_y", CronchSize.y);
-        cmd_output.DispatchCompute(m_computeShader, m_kernelIndex_output, ycbcr_size.x, ycbcr_size.y, 1);
+        if (fuzzy)
+        {
+            cmd_output.SetComputeTextureParam(m_nihilismShader, m_kernelIndex_unfuzz, "Result", t_trashedOutput);
+            cmd_output.SetComputeTextureParam(m_nihilismShader, m_kernelIndex_unfuzz, "Chroma", t_idctOutput);
+            cmd_output.SetComputeTextureParam(m_nihilismShader, m_kernelIndex_unfuzz, "Fuzz", t_fuzz);
+            cmd_output.SetComputeIntParam(m_nihilismShader, p_fuzz_size, m_fuzz);
+            cmd_output.SetComputeIntParam(m_computeShader, p_resolution_ix, CronchSize.x);
+            cmd_output.SetComputeIntParam(m_computeShader, p_resolution_iy, CronchSize.y);
+            cmd_output.DispatchCompute(m_nihilismShader, m_kernelIndex_unfuzz, ycbcr_size.x, ycbcr_size.y, 1);
+        }
+        else
+        {
+            cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Result", t_trashedOutput);
+            cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Chroma", t_idctOutput);
+            cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Luma", t_ycbcrOutput);
+            cmd_output.SetComputeFloatParam(m_computeShader, p_resolution_x, CronchSize.x);
+            cmd_output.SetComputeFloatParam(m_computeShader, p_resolution_y, CronchSize.y);
+            cmd_output.DispatchCompute(m_computeShader, m_kernelIndex_output, ycbcr_size.x, ycbcr_size.y, 1);
+        }
         context.ExecuteCommandBuffer(cmd_output);
         cmd_output.Clear();
         CommandBufferPool.Release(cmd_output);
@@ -315,8 +367,8 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
 
         #region COMPOSITE 🎨🖼️📸 ⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎⋃⊎∪⊎∪⊎∪⊎
         CommandBuffer cmd = CommandBufferPool.Get("Trashhcore Composite");
-        m_Material.SetFloat(p_blend, m_blendWithOriginal);
 
+        m_Material.SetFloat(p_blend, m_blendWithOriginal);
         switch (m_outputMode)
         {
             case TrashcoreRendererFeature.OutputMode.YCbCr:
@@ -350,7 +402,6 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
                 m_Material.SetFloat("_ComputeVScale", 1f);
                 break;
         }
-
         cmd.DrawMesh(RenderingUtils.fullscreenMesh, Matrix4x4.identity, m_Material);
         context.ExecuteCommandBuffer(cmd);
         cmd.Clear();

@@ -6,11 +6,12 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
 {
     public Shader m_compositeShader;
     public ComputeShader m_computeShader;
+    public ComputeShader m_nihilismShader;
     //[Range(0.0f, 1.0f)] public float m_Intensity; // Clamped slider between 0 and 1
     [Range(-1f, 2f)] public float m_BlendWithOriginal = 1f;
     [Range(0, 5)] public int m_Cronch;
     [Range(0.0f, 1.0f)] public float m_Crunch = 0.2f;  // posterization levels. 0 = binary, 1.0 = 256 levels
-    [Range(0.0f, 1.0f)] public float m_Fuzz = 1f;
+    [Range(0, 7)] public int m_Fuzz = 2;
     public Juice m_Juice = Juice.HeavyPulpOhYeahBabay;
     private Material m_material;
     public OutputMode m_OutputMode;
@@ -54,7 +55,7 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
     {
         Debug.Assert(m_computeShader != null);
         m_material = CoreUtils.CreateEngineMaterial(m_compositeShader);
-        m_renderPass = new TrashcoreRenderPass(m_computeShader, m_material);
+        m_renderPass = new TrashcoreRenderPass(m_computeShader, m_nihilismShader, m_material);
     }
 
     protected override void Dispose(bool disposing)

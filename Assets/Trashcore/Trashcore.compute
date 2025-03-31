@@ -11,6 +11,7 @@ Texture2D<float4> Input;
 SamplerState samplerInput; // auto-gemerated by unity if name is texture plus "sampler" prefix 
 Texture2D<float4> Luma; // used only in the output shader
 Texture2D<float4> Chroma; // used only in the output shader
+Texture2D<float4> Original; // used only in TrashcoreIdct
 
 float Resolution_x;
 float Resolution_y;
@@ -139,7 +140,7 @@ void TrashcoreIdct (uint3 id : SV_DispatchThreadID)
     // after trying ahandful of different cached pixel value gave up. lets just read the root pixel for each dct block
     // from the original
     int2 origin_in_original = int2(int(1024.0 / Resolution_x) * idct_origin);
-    Result[int2(idct_origin.x, idct_origin.y)] = Chroma.Load(int3(origin_in_original, 0));
+    Result[int2(idct_origin.x, idct_origin.y)] = Original.Load(int3(origin_in_original, 0));
 }
 
 [numthreads(8,8,1)]
