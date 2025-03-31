@@ -47,19 +47,24 @@ void TrashcoreCronch (uint3 id : SV_DispatchThreadID)
 [numthreads(8,8,1)]
 void TrashcoreDct (uint3 id : SV_DispatchThreadID)
 {
+    uint x_max = int(Resolution_x);
+    uint offset_x = (id.y % 2 == 0) ? 0 : 4;
     int frequency_limit = 6 + juice;
     // id.x and y represent the DCT block indices (not pixels!)
-    int2 dct_origin = int2(id.x * 8, id.y * 8);
+    int origin_x = (id.x * 8 + offset_x) % x_max;
+    int2 dct_origin = int2(origin_x, id.y * 8);
     for (int s = 0; s < frequency_limit; s++) // s and t are in frequency space (output)
     {
+        uint x_out = uint(dct_origin.x + s) % x_max;
         for (int t = 0; t < frequency_limit; t++)
         {
             float4 sum = 0.0;
             for (int u = 0; u < 8; u++)  // u and v are in texture space (input
             {
+                uint x_in = uint(dct_origin.x + u) % x_max;
                 for (int v = 0; v < 8; v++)
                 {
-                    float4 pixelValue = Input.Load(int3(dct_origin.x + u, dct_origin.y + v, 0));
+                    float4 pixelValue = Input.Load(int3(x_in, dct_origin.y + v, 0));
                     float cos_x = cos(((2 * u + 1) * s * 3.14159265359) / 16.0);
                     float cos_y = cos(((2 * v + 1) * t * 3.14159265359) / 16.0);
                     sum += pixelValue * cos_x * cos_y;
@@ -68,7 +73,7 @@ void TrashcoreDct (uint3 id : SV_DispatchThreadID)
             float C_s = (s == 0) ? sqrt(0.5) : 1.0;
             float C_t = (t == 0) ? sqrt(0.5) : 1.0;
             sum.w = 1.0;
-            Result[int2(dct_origin.x + s, dct_origin.y + t)] = 0.25 * C_s * C_t * sum;
+            Result[int2(x_out, dct_origin.y + t)] = 0.25 * C_s * C_t * sum;
         }
     }
 }
@@ -92,7 +97,10 @@ void TrashcoreCrunch (uint3 id : SV_DispatchThreadID)
 void TrashcoreIdct (uint3 id : SV_DispatchThreadID)
 {
     // id.x and id.y represent the IDCT block indices (not pixels!)
-    int2 idct_origin = int2(id.x * 8, id.y * 8);
+    uint x_max = int(Resolution_x);
+    int offset_x = (id.y % 2 == 0) ? 0 : 4;
+    int origin_x = (id.x * 8 + offset_x) % x_max;
+    int2 idct_origin = int2(origin_x, id.y * 8);
     float4 sum = float4(0.0, 0.0, 0.0, 1.0);
     float4 tap0 = float4(0.0, 0.0, 0.0, 1.0);
     float4 tap1 = float4(0.0, 0.0, 0.0, 1.0);
@@ -100,14 +108,16 @@ void TrashcoreIdct (uint3 id : SV_DispatchThreadID)
     
     for (int u = 0; u < 8; u++) // u and v are in texture space (output)
     {
+        uint x_out = uint(idct_origin.x + u) % x_max;
         for (int v = 0; v < 8; v++)
         {
             float4 result = float4(0.0, 0.0, 0.0, 1.0);
             for (int s = 0; s < frequency_limit; s++) // s and t are in frequency space (input)
             {
+                uint x_in = uint(idct_origin.x + s) % x_max;
                 for (int t = 0; t < frequency_limit; t++)
                 {
-                    float4 crunchedCoeficient = Input.Load(int3(idct_origin.x + s, idct_origin.y + t, 0));
+                    float4 crunchedCoeficient = Input.Load(int3(x_in, idct_origin.y + t, 0));
                     float cos_x = cos(((2 * u + 1) * s * 3.14159265359) / 16.0);
                     float cos_y = cos(((2 * v + 1) * t * 3.14159265359) / 16.0);
                     float C_s = (s == 0) ? sqrt(0.5) : 1.0;
@@ -119,7 +129,8 @@ void TrashcoreIdct (uint3 id : SV_DispatchThreadID)
             // scale the result by 0.25 (per IDCT formula)
             result *= 0.25;
             // write the IDCT value to the output texture
-            Result[int2(idct_origin.x + u, idct_origin.y + v)] = result;
+            
+            Result[int2(x_out, idct_origin.y + v)] = result;
             // setup for the bandaid fix
             if (u == 1 && v == 1) { tap0 = result; }
             if (u == 7 && v == 7) { tap1 = result; }

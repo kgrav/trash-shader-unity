@@ -9,6 +9,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     private readonly int p_blend = Shader.PropertyToID("_BlendWithOriginal");
     private readonly int p_crunchLevels = Shader.PropertyToID("crunch_levels");
     private readonly int p_juice = Shader.PropertyToID("juice");
+    private readonly int p_resolution_x = Shader.PropertyToID("Resolution_x");
     private readonly RenderTexture t_ycbcrOutput;
     // originally this was implemented with just one temporary and one output texture,
     // but after wasting more than two hours trying to debug, rewrote in vulgar form
@@ -146,7 +147,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBuffer cmd = CommandBufferPool.Get(level_description);
         cmd.SetComputeTextureParam(m_computeShader, m_kernelIndex_cronch, "Input", fromTexture);
         cmd.SetComputeTextureParam(m_computeShader, m_kernelIndex_cronch, "Result", toTexture);
-        cmd.SetComputeFloatParams(m_computeShader, "Resolution_x", outputSize.x);
+        cmd.SetComputeFloatParam(m_computeShader, p_resolution_x, outputSize.x);
         cmd.SetComputeFloatParams(m_computeShader, "Resolution_y", outputSize.y);
         int ranks = Mathf.CeilToInt(outputSize.x / 8.0f);
         int files = Mathf.CeilToInt(outputSize.y / 8.0f);
@@ -169,7 +170,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBuffer cmd = CommandBufferPool.Get($"Trashhcore Crunch Level {description}");
         cmd.SetComputeTextureParam(m_computeShader, m_kernelIndex_crunch, "Input", fromTexture);
         cmd.SetComputeTextureParam(m_computeShader, m_kernelIndex_crunch, "Result", toTexture);
-        cmd.SetComputeFloatParams(m_computeShader, "Resolution_x", outputSize.x);
+        cmd.SetComputeFloatParam(m_computeShader, p_resolution_x, outputSize.x);
         cmd.SetComputeFloatParams(m_computeShader, "Resolution_y", outputSize.y);
         cmd.SetComputeFloatParams(m_computeShader, "Crunch", number_of_levels);
         int crunch_ranks = Mathf.CeilToInt(outputSize.x / 8.0f);
@@ -200,7 +201,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBuffer cmd_ycbcr = CommandBufferPool.Get("Trashhcore YCbCr");
         cmd_ycbcr.SetComputeTextureParam(m_computeShader, m_kernelIndex_ycbcr, "Input", cameraColorTarget);
         cmd_ycbcr.SetComputeTextureParam(m_computeShader, m_kernelIndex_ycbcr, "Result", t_ycbcrOutput);
-        cmd_ycbcr.SetComputeFloatParams(m_computeShader, "Resolution_x", ycbcr_size.x);
+        cmd_ycbcr.SetComputeFloatParam(m_computeShader, p_resolution_x, ycbcr_size.x);
         cmd_ycbcr.SetComputeFloatParams(m_computeShader, "Resolution_y", ycbcr_size.y);
         int ycbcr_ranks = Mathf.CeilToInt(ycbcr_size.x / 8.0f); // rows
         int ycbcr_files = Mathf.CeilToInt(ycbcr_size.y / 8.0f); // columns
@@ -265,6 +266,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         cmd_dct.SetComputeTextureParam(m_computeShader, m_kernelIndex_dct, "Input", t_cronched);
         cmd_dct.SetComputeTextureParam(m_computeShader, m_kernelIndex_dct, "Result", t_dctCoeffs);
         cmd_dct.SetComputeIntParam(m_computeShader, p_juice, m_juice);
+        cmd_dct.SetComputeFloatParam(m_computeShader, p_resolution_x, CronchSize.x);
         cmd_dct.DispatchCompute(m_computeShader, m_kernelIndex_dct, cronchFileCount, cronchRankCount, 1);
         context.ExecuteCommandBuffer(cmd_dct);
         cmd_dct.Clear();
@@ -290,6 +292,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Input", t_crunchedCoeffs);
         cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Result", t_idctOutput);
         cmd_idct.SetComputeIntParam(m_computeShader, p_juice, m_juice);
+        cmd_dct.SetComputeFloatParam(m_computeShader, p_resolution_x, CronchSize.x);
         cmd_idct.DispatchCompute(m_computeShader, m_kernelIndex_idct, cronchFileCount, cronchRankCount, 1);
         context.ExecuteCommandBuffer(cmd_idct);
         cmd_idct.Clear();
@@ -301,7 +304,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Result", t_trashedOutput);
         cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Chroma", t_idctOutput);
         cmd_output.SetComputeTextureParam(m_computeShader, m_kernelIndex_output, "Luma", t_ycbcrOutput);
-        cmd_output.SetComputeFloatParams(m_computeShader, "Resolution_x", CronchSize.x);
+        cmd_output.SetComputeFloatParam(m_computeShader, p_resolution_x, CronchSize.x);
         cmd_output.SetComputeFloatParams(m_computeShader, "Resolution_y", CronchSize.y);
         cmd_output.DispatchCompute(m_computeShader, m_kernelIndex_output, ycbcr_size.x, ycbcr_size.y, 1);
         context.ExecuteCommandBuffer(cmd_output);
