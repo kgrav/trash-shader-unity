@@ -48,9 +48,9 @@ void TrashcoreCronch (uint3 id : SV_DispatchThreadID)
 void TrashcoreDct (uint3 id : SV_DispatchThreadID)
 {
     uint x_max = int(Resolution_x);
+    // id.x and y represent the DCT block indices (not pixels!)
     uint offset_x = (id.y % 2 == 0) ? 0 : 4;
     int frequency_limit = 6 + juice;
-    // id.x and y represent the DCT block indices (not pixels!)
     int origin_x = (id.x * 8 + offset_x) % x_max;
     int2 dct_origin = int2(origin_x, id.y * 8);
     for (int s = 0; s < frequency_limit; s++) // s and t are in frequency space (output)
@@ -131,14 +131,15 @@ void TrashcoreIdct (uint3 id : SV_DispatchThreadID)
             // write the IDCT value to the output texture
             
             Result[int2(x_out, idct_origin.y + v)] = result;
-            // setup for the bandaid fix
-            if (u == 1 && v == 1) { tap0 = result; }
-            if (u == 7 && v == 7) { tap1 = result; }
         }
     }
     // bandaid fix. the first pixel looks very green for some reason.
-    // find the three adjacent pixels on the opposite corner of the post idct transform
-    Result[int2(idct_origin.x, idct_origin.y)] = 0.35 * tap0 + 0.65 * tap1;
+    // first attempt was to cache nearby values but it was still off.
+    //    - Result[int2(idct_origin.x, idct_origin.y)] = 0.35 * tap0 + 0.65 * tap1;
+    // after trying ahandful of different cached pixel value gave up. lets just read the root pixel for each dct block
+    // from the original
+    int2 origin_in_original = int2(int(1024.0 / Resolution_x) * idct_origin);
+    Result[int2(idct_origin.x, idct_origin.y)] = Chroma.Load(int3(origin_in_original, 0));
 }
 
 [numthreads(8,8,1)]

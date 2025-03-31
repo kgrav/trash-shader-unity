@@ -291,6 +291,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBuffer cmd_idct = CommandBufferPool.Get("Trashhcore Idct ✨");
         cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Input", t_crunchedCoeffs);
         cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Result", t_idctOutput);
+        cmd_idct.SetComputeTextureParam(m_computeShader, m_kernelIndex_idct, "Chroma", t_ycbcrOutput);
         cmd_idct.SetComputeIntParam(m_computeShader, p_juice, m_juice);
         cmd_dct.SetComputeFloatParam(m_computeShader, p_resolution_x, CronchSize.x);
         cmd_idct.DispatchCompute(m_computeShader, m_kernelIndex_idct, cronchFileCount, cronchRankCount, 1);
