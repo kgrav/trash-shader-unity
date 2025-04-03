@@ -46,33 +46,49 @@ void NihilismSingleChannel (uint3 id : SV_DispatchThreadID)
 							 0);
 	
 	// create values for to record locations of brightest and darkest pixels
-	float shadow_value = 1e7;
-	float bright_value = -1e7;
-	int2 shadow_uv = int2(0, 0);
-	int2 bright_uv = int2(block_size - 1, nihilism_block_size - 1);
+	float shadow_value = 1.0;
+	float bright_value = 0.0;
+	int2 shadow_uv = int2(block_size, block_size);
+	int2 bright_uv = int2(-1, -1);
+	bool found_bright = false;
+	bool found_shadow = false;
+	float sum_green = 0.0;
 
 	for (uint u = 0; u < block_size; u++)
 	{
 		int input_x = block_origin.x + u;
 		if (input_x >= zresolution_ix) input_x = zresolution_ix - 1; // <----- WRAPPING ------<<
-		if (input_x < 10) input_x = 10; // for debugging porpoises
-
 		for (uint v = 0; v < block_size; v++)
 		{
 			float4 input_value = Input.Load(int3(input_x, block_origin.y + v, 0));
 			float we_only_care_about_green = input_value.g;
+			sum_green += we_only_care_about_green;
 			if (we_only_care_about_green > bright_value)
 			{
 				bright_value = we_only_care_about_green;
 				bright_uv = int2(u, v);
+				found_bright = true;
 			}
 			else if (we_only_care_about_green < shadow_value)
 			{
 				shadow_value = we_only_care_about_green;
 				shadow_uv = int2(u, v);
+				found_shadow = true;
 			}
 		}
 	}
+
+	if (!found_bright) bright_value = sum_green / float(block_size * block_size);
+	if (!found_shadow) shadow_value = sum_green / float(block_size * block_size);
+
+	float bright_to_shadow_distance = length(float2(bright_uv - shadow_uv));
+
+	if (bright_to_shadow_distance < 2.0) // <----- CLAMP ------<<
+	{
+		bright_uv = int2(0, 0);
+		shadow_uv = int2(block_size, block_size);
+	}
+
 	float posterized_bright_value = floor(bright_value * posterize_levels) / posterize_levels;
 	float posterized_shadow_value = floor(shadow_value * posterize_levels) / posterize_levels;
 	float bright_uv_f = float(bright_uv.x + bright_uv.y * nihilism_block_size);
@@ -133,15 +149,15 @@ void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 	// Calculate the distance between bright_uv and shadow_uv
 	float2 shadow_to_bright = float2(bright_uv - shadow_uv);
 	float2 this_to_bright = float2(this_uv - bright_uv);
-	float2 this_to_dark = float2(this_uv - shadow_uv);
+	float2 shadow_to_this = float2(this_uv - shadow_uv);
 
 	// shadow_uv and bright_uv distance is guaranteed to be greater than zero by the encoder logic
 	float gradient_length = length(shadow_to_bright);
 	float distance_to_bright = length(this_to_bright);
-	float distance_to_dark = length(this_to_dark);
+	float distance_to_shadow = length(shadow_to_this);
 	
-	
-	float t = distance_to_dark / gradient_length;
+	float t = dot(shadow_to_this, shadow_to_bright) / gradient_length / distance_to_shadow;
+//	float t = distance_to_dark / gradient_length;
 	t = clamp(t, 0.0, 1.0); // <----- CLAMP ------<<
 	float y = lerp(shadow_value, bright_value, t);
 
