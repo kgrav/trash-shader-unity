@@ -1,16 +1,17 @@
 #pragma kernel NihilismSingleChannel // operates on th4 green channel only 
 #pragma kernel TrashcoreUnfuzz
 
-RWTexture2D<float4> Result; // used by all
+RWTexture2D<float4> Result; // used by all, write-only
 Texture2D<float4> Input; // used by all
 Texture2D<float4> Chroma; // used only in the output shader, TrashcoreUnfuzz
 Texture2D<float4> Fuzz; // used only in the output shader, TrashcoreUnfuzz
-float posterize_levels; // used only in the nihilism shaders
+float fuzzy_ruff; // used only in the nihilism shaders
 int nihilism_block_size; // used by all
-int zresolution_ix; // output shader only
+int resolution_ix; // output shader only
 int resolution_iy; // output shader only
 int t_fuzz_width; // nihilism shader only
 int t_fuzz_height; // nihilism shader only
+int theory; // used only in the output shader, TrashcoreUnfuzz
 
 // assert in cpu-side script that result.width * nihilism_block_size == input.width 
 // assert in cpu-side script that result.height * nihilism_block_size == input.height
@@ -34,13 +35,7 @@ void NihilismSingleChannel (uint3 id : SV_DispatchThreadID)
 	// input coordinate is the pixel coordinate in the input texture
 	uint block_rank = uint(id.y);
 	uint block_size = uint(nihilism_block_size); // unity warns of using int divides and mod and recommended using uint instead
-	// offset by half of a block width for even rows. alternate integer rounding to stagger when the block size is odd
-	int offset_x = (block_rank % 2 == 1)
-						? 0
-						: (block_rank % 4 == 0
-								? (block_size - block_size / 2) 
-								: (block_size / 2));
-	
+	int offset_x = (block_rank % 2) * (block_size / 2);
 	int3 block_origin = int3(id.x * block_size + offset_x,
 							 id.y * block_size,
 							 0);
@@ -48,8 +43,8 @@ void NihilismSingleChannel (uint3 id : SV_DispatchThreadID)
 	// create values for to record locations of brightest and darkest pixels
 	float shadow_value = 1.0;
 	float bright_value = 0.0;
-	int2 shadow_uv = int2(block_size, block_size);
-	int2 bright_uv = int2(-1, -1);
+	int2 shadow_uv = int2(block_size - 1, block_size);
+	int2 bright_uv = int2(0, 0);
 	bool found_bright = false;
 	bool found_shadow = false;
 	float sum_green = 0.0;
@@ -57,7 +52,7 @@ void NihilismSingleChannel (uint3 id : SV_DispatchThreadID)
 	for (uint u = 0; u < block_size; u++)
 	{
 		int input_x = block_origin.x + u;
-		if (input_x >= zresolution_ix) input_x = zresolution_ix - 1; // <----- WRAPPING ------<<
+		if (input_x >= resolution_ix) input_x = resolution_ix - 1; // <----- WRAPPING ------<<
 		for (uint v = 0; v < block_size; v++)
 		{
 			float4 input_value = Input.Load(int3(input_x, block_origin.y + v, 0));
@@ -88,19 +83,17 @@ void NihilismSingleChannel (uint3 id : SV_DispatchThreadID)
 		bright_uv = int2(0, 0);
 		shadow_uv = int2(block_size, block_size);
 	}
-
+	float posterize_levels = 1.0 + fuzzy_ruff;
 	float posterized_bright_value = floor(bright_value * posterize_levels) / posterize_levels;
 	float posterized_shadow_value = floor(shadow_value * posterize_levels) / posterize_levels;
 	float bright_uv_f = float(bright_uv.x + bright_uv.y * nihilism_block_size);
 	float shadow_uv_f = float(shadow_uv.x + shadow_uv.y * nihilism_block_size);
 	
-	// float r = float(id.x) / float(t_fuzz_width);
-	// float g = float(id.y) / float(t_fuzz_height);
-	// float b = 0.5;
-	// Result[id.xy] = float4(r, g, b, 1); // initialize to zero to avoid garbage values
-	Result[id.xy] = float4(bright_value, bright_uv_f, shadow_value, shadow_uv_f);
+	Result[id.xy] = float4(posterized_bright_value,
+							bright_uv_f,
+							posterized_shadow_value,
+							shadow_uv_f);
 }
-
 
 int2 uv_f_to_int2(float uv_f, uint block_size)
 {
@@ -114,7 +107,7 @@ int2 uv_f_to_int2(float uv_f, uint block_size)
 void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 {
 	// dont read dimensions of texture since the compute shaders only write part of them
-    int chroma_x = id.x * zresolution_ix / 1024;
+    int chroma_x = id.x * resolution_ix / 1024;
     int chroma_y = id.y * resolution_iy / 512;
     float4 chroma = Chroma.Load(int3(chroma_x, chroma_y, 0));
     /////////////////// ABOVE is copied from TrashcoreOutput  ////////////////////
@@ -123,15 +116,14 @@ void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 
 	// this part is different, compute y from gradient rather than texel fetch from source ycbcr texture
 	uint block_size = uint(nihilism_block_size); // unity warns of using int divides and mod and recommended using uint instead
-	uint block_rank = uint(id.y / nihilism_block_size); // row id
+	uint block_rank = uint(id.y / block_size); // row id
+	
 	// reverse the stagger from nihilism encoder. offset every even row by half of a block width
-	int offset_x = (block_rank % 2 == 1) 
-						? 0
-						: (block_rank % 4 == 0
-								? (block_size - block_size / 2) 
-								: (block_size / 2));
-
-	int3 fuzz_origin = int3((id.x - offset_x) / nihilism_block_size, id.y / nihilism_block_size, 0);
+	int offset_x = (block_rank % 2) * (block_size / 2);
+	int x = max(0.0, id.x - offset_x);
+	int3 fuzz_origin = int3(x / block_size,
+							id.y / block_size,
+							0);
 	float4 fuzz_value = Fuzz.Load(fuzz_origin);
 
 	float bright_value = fuzz_value.x;
@@ -156,22 +148,31 @@ void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 	float distance_to_bright = length(this_to_bright);
 	float distance_to_shadow = length(shadow_to_this);
 	
-	float t = dot(shadow_to_this, shadow_to_bright) / gradient_length / distance_to_shadow;
-//	float t = distance_to_dark / gradient_length;
-	t = clamp(t, 0.0, 1.0); // <----- CLAMP ------<<
-	float y = lerp(shadow_value, bright_value, t);
-
-	// float t = distance_to_bright / gradient_length;
-	// t = clamp(t, 0.0, 1.0); // <----- CLAMP ------<<
-	// float y = lerp(bright_value, shadow_value, t);
+	float gradient_factor;
+	float t_raw = 0.0;
+	switch (theory)
+	{
+		case 3: // crunch ultimê
+			t_raw = 0.0;
+			break;
+		case 2:  // velvet dumpster overture
+			gradient_factor = 1.0 - pow(abs(dot(normalize(shadow_to_this), normalize(shadow_to_bright))), 2.3);
+			t_raw = gradient_factor * (0.8 + 0.2 * sin(distance_to_bright * 3.14159));
+			break;
+		case 1: // ants dance trance perhaps
+			t_raw = 1.0 - distance_to_shadow / gradient_length;
+			break;
+		default: // woven pixel symphony
+			t_raw = 1.0 - dot(normalize(shadow_to_this), normalize(shadow_to_bright));
+			break;
+	}
+	float y = lerp(bright_value, shadow_value, clamp(t_raw, 0.0, 1.0));
+	//float y = chroma.g;
 
 	//////////////////////////////////////////////////////////////////////////////
 	////////////////// REMAINDER is copied from TrashcoreOutput  /////////////////
 	float cb = chroma.b;
     float cr = chroma.r;
-
-	// cb = 0.5;
-	// cr = 0.5;
 
     float r = y + 1.402 * (cr - 0.5);
     float g = y - 0.344136 * (cr - 0.5) - 0.714136 * (cb - 0.5);

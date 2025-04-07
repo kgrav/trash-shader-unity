@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -10,14 +11,15 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     private readonly int p_blend = Shader.PropertyToID("_BlendWithOriginal");
     private readonly int p_crunchLevels = Shader.PropertyToID("crunch_levels");
     private readonly int p_fuzz_size = Shader.PropertyToID("nihilism_block_size");
-    private readonly int p_fuzz_levels = Shader.PropertyToID("posterize_levels");
+    private readonly int p_fuzzy_ruff = Shader.PropertyToID("fuzzy_ruff");
     private readonly int p_t_fuzz_width = Shader.PropertyToID("t_fuzz_width");
     private readonly int p_t_fuzz_height = Shader.PropertyToID("t_fuzz_height");
     private readonly int p_juice = Shader.PropertyToID("juice");
     private readonly int p_resolution_x = Shader.PropertyToID("Resolution_x");
     private readonly int p_resolution_y = Shader.PropertyToID("Resolution_y");
-    private readonly int p_resolution_ix = Shader.PropertyToID("zresolution_ix");
+    private readonly int p_resolution_ix = Shader.PropertyToID("resolution_ix");
     private readonly int p_resolution_iy = Shader.PropertyToID("resolution_iy");
+    private readonly int p_theory = Shader.PropertyToID("theory");
 
     // originally this was implemented with just one temporary and one output texture,
     // but after wasting more than two hours trying to debug, rewrote in vulgar form
@@ -56,8 +58,10 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     private float m_blendWithOriginal = 0.0f;
     private int m_cronch;
     private float m_crunch = 0.2f; // posterization levels. 0 = binary, 1.0 = 256 levels
-    private int m_fuzz = 1;
+    private int m_fuzz_size = 1;
+    private float m_fuzzy_ruff = 32f;
     private int m_juice = 8;
+    private int m_theory = 0;
     private TrashcoreRendererFeature.OutputMode m_outputMode;
 
     public TrashcoreRenderPass(ComputeShader computeShader, ComputeShader nihilismShader, Material material)
@@ -144,15 +148,25 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     {
         m_outputMode = outputMode;
     }
-    public void SetFuzz(int fuzz)
+    public void SetFuzzSize(int fuzz_size)
     {
-        m_fuzz = fuzz;
+        m_fuzz_size = fuzz_size;
+    }
+    public void SetFuzzyRuff(float fuzz_roughness)
+    {
+        m_fuzzy_ruff = Mathf.Pow(2.0f, fuzz_roughness);
     }
     public void SetJuice(int juice_factor)
     {
         m_juice = juice_factor;
         Debug.Assert(0 <= juice_factor  && juice_factor <= 8, 
             $"TrashcoreRenderPass: {juice_factor} must be between 0 and 2 inclusive, clamp the editor slider in feature.");
+    }
+    public void SetTheory(int theory)
+    {
+        m_theory = theory;
+        Debug.Assert(0 <= theory && theory <= 3, 
+            $"TrashcoreRenderPass: {theory} must be between 0 and 3 inclusive, clamp the editor slider in feature.");
     }
 
     // Cronch = chroma subsampling
@@ -230,15 +244,15 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         #endregion
 
         #region FUZZ 🧸 ▲■■■■▲△■□□▲■■▲□▲▲▲□■■■■▲△■■■□■■■■▲△▲□■■■▲▲▲▲□▲■■■■■▲△▲■□□■■■□▲
-        bool fuzzy = m_fuzz > 1;
+        bool fuzzy = m_fuzz_size > 1;
         if (fuzzy)
         {
-            float t = (float)(7 - m_fuzz);
+            float t = (float)(7 - m_fuzz_size);
             float fuzz_exponent = Mathf.Lerp(1.0f, 4.0f, Mathf.Clamp01(t / 7.0f));
             float fuzz_levels = Mathf.Pow(2.0f, fuzz_exponent);
             // the size of the nihilism block is stored as the editor-exposed integer value 0 < m_fuzz < 8
-            int fuzz_width = Mathf.CeilToInt((float)ycbcr_size.x / (float)m_fuzz);
-            int fuzz_height = Mathf.CeilToInt((float)ycbcr_size.y / (float)m_fuzz);
+            int fuzz_width = Mathf.CeilToInt((float)ycbcr_size.x / (float)m_fuzz_size);
+            int fuzz_height = Mathf.CeilToInt((float)ycbcr_size.y / (float)m_fuzz_size);
 
             Debug.Assert(ycbcr_size.y == ycbcr_size.x / 2, 
                 $"TrashcoreRenderPass: YCbCr size mismatch. Expected y ({ycbcr_size.y}) to be half of x ({ycbcr_size.x}).");
@@ -248,10 +262,10 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
             cmd_fuzz.SetComputeTextureParam(m_nihilismShader, 0, "Result", t_fuzz);
             cmd_fuzz.SetComputeIntParam(m_nihilismShader, p_resolution_ix, ycbcr_size.x);
             cmd_fuzz.SetComputeIntParam(m_nihilismShader, p_resolution_iy, ycbcr_size.y);
-            cmd_fuzz.SetComputeIntParam(m_nihilismShader, p_fuzz_size, m_fuzz);
+            cmd_fuzz.SetComputeIntParam(m_nihilismShader, p_fuzz_size, m_fuzz_size);
+            cmd_fuzz.SetComputeFloatParam(m_nihilismShader, p_fuzzy_ruff, m_fuzzy_ruff);
             cmd_fuzz.SetComputeIntParam(m_nihilismShader, p_t_fuzz_width, fuzz_width);
             cmd_fuzz.SetComputeIntParam(m_nihilismShader, p_t_fuzz_height, fuzz_height);
-            cmd_fuzz.SetComputeFloatParam(m_nihilismShader, p_fuzz_levels, fuzz_levels);
             cmd_fuzz.DispatchCompute(m_nihilismShader, m_kernelIndex_fuzz, fuzz_width, fuzz_height, 1);
             context.ExecuteCommandBuffer(cmd_fuzz);
             cmd_fuzz.Clear();
@@ -355,10 +369,12 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
             cmd_output.SetComputeTextureParam(m_nihilismShader, m_kernelIndex_unfuzz, "Result", t_trashedOutput);
             cmd_output.SetComputeTextureParam(m_nihilismShader, m_kernelIndex_unfuzz, "Chroma", t_idctOutput);
             cmd_output.SetComputeTextureParam(m_nihilismShader, m_kernelIndex_unfuzz, "Fuzz", t_fuzz);
-            cmd_output.SetComputeIntParam(m_nihilismShader, p_fuzz_size, m_fuzz);
+            cmd_output.SetComputeIntParam(m_nihilismShader, p_fuzz_size, m_fuzz_size);
+            cmd_output.SetComputeFloatParam(m_nihilismShader, p_fuzzy_ruff, m_fuzzy_ruff);
             cmd_output.SetComputeIntParam(m_nihilismShader, p_resolution_ix, CronchSize.x);
             cmd_output.SetComputeIntParam(m_nihilismShader, p_resolution_iy, CronchSize.y);
             cmd_output.DispatchCompute(m_nihilismShader, m_kernelIndex_unfuzz, ycbcr_size.x, ycbcr_size.y, 1);
+            cmd_output.SetComputeIntParam(m_nihilismShader, p_theory, m_theory);
         }
         else
         {
@@ -378,6 +394,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBuffer cmd = CommandBufferPool.Get("Trashhcore Composite");
 
         m_Material.SetFloat(p_blend, m_blendWithOriginal);
+        m_Material.SetInt(p_theory, m_theory);
         switch (m_outputMode)
         {
             case TrashcoreRendererFeature.OutputMode.YCbCr:
@@ -402,6 +419,16 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
                 break;
             case TrashcoreRendererFeature.OutputMode.IDCT:
                 m_Material.SetTexture("_ComputeOutput", t_idctOutput);
+                m_Material.SetFloat("_ComputeUScale", max_dct_size.x / CronchSize.x);
+                m_Material.SetFloat("_ComputeVScale", max_dct_size.y / CronchSize.y);
+                break;
+            case TrashcoreRendererFeature.OutputMode.Fuzz:
+                m_Material.SetTexture("_ComputeOutput", t_fuzz);
+                m_Material.SetFloat("_ComputeUScale", 1f);
+                m_Material.SetFloat("_ComputeVScale", 1f);
+                break;
+            case TrashcoreRendererFeature.OutputMode.Unfuzz:
+                m_Material.SetTexture("_ComputeOutput", t_fuzz);
                 m_Material.SetFloat("_ComputeUScale", max_dct_size.x / CronchSize.x);
                 m_Material.SetFloat("_ComputeVScale", max_dct_size.y / CronchSize.y);
                 break;
