@@ -2,16 +2,16 @@
 #pragma kernel TrashcoreUnfuzz
 
 RWTexture2D<float4> Result; // used by all, write-only
-Texture2D<float4> Input; // used by all
-Texture2D<float4> Chroma; // used only in the output shader, TrashcoreUnfuzz
-Texture2D<float4> Fuzz; // used only in the output shader, TrashcoreUnfuzz
-float fuzzy_ruff; // used only in the nihilism shaders
-int nihilism_block_size; // used by all
-int resolution_ix; // output shader only
-int resolution_iy; // output shader only
-int t_fuzz_width; // nihilism shader only
-int t_fuzz_height; // nihilism shader only
-int theory; // used only in the output shader, TrashcoreUnfuzz
+Texture2D<float4> Input; 	// used by all
+Texture2D<float4> Chroma; 	// used only in the output shader, TrashcoreUnfuzz
+Texture2D<float4> Fuzz; 	// used only in the output shader, TrashcoreUnfuzz
+int nihilism_block_size; 	// used by all
+int input_size_x; 			// both encoder and decoder
+int input_size_y; 			// both encoder and decoder
+int input_mip_level; 		// only encoder
+int output_size_x; 			// 					decoder only 
+int output_size_y; 			// 					decoder only
+int theory; 				// 					decoder only, TrashcoreUnfuzz
 
 // assert in cpu-side script that result.width * nihilism_block_size == input.width 
 // assert in cpu-side script that result.height * nihilism_block_size == input.height
@@ -30,17 +30,20 @@ int theory; // used only in the output shader, TrashcoreUnfuzz
 void NihilismSingleChannel (uint3 id : SV_DispatchThreadID)
 {	
 	// the size of the fuzz output pixels is not necessarily divisible by 8. cull if we're out of bounds 
-	if (id.x >= uint(t_fuzz_width) || id.y >= uint(t_fuzz_height)) return;
+	if (id.x >= uint(output_size_x) || id.y >= uint(output_size_y)) return;
 
 	// input coordinate is the pixel coordinate in the input texture
 	uint block_rank = uint(id.y);
-	uint block_size = uint(nihilism_block_size); // unity warns of using int divides and mod and recommended using uint instead
+	uint block_size = uint(4) ;//nihilism_block_size); // unity warns of using int divides and mod and recommended using uint instead
+	
 	int offset_x = (block_rank % 2) * (block_size / 2);
-	int3 block_origin = int3(id.x * block_size + offset_x,
+	
+	int3 block_origin = input_mip_level 
+					  * int3(id.x * block_size + offset_x,
 							 id.y * block_size,
 							 0);
 	
-	// create values for to record locations of brightest and darkest pixels
+	// create values to record locations of brightest and darkest pixels
 	float shadow_value = 1.0;
 	float bright_value = 0.0;
 	int2 shadow_uv = int2(block_size - 1, block_size);
@@ -49,13 +52,35 @@ void NihilismSingleChannel (uint3 id : SV_DispatchThreadID)
 	bool found_shadow = false;
 	float sum_green = 0.0;
 
+	// Clamp input_mip_level to a value between 0 and 7 inclusive
+	int clamped_mip_level = clamp(input_mip_level, 0, 7);
+
 	for (uint u = 0; u < block_size; u++)
 	{
-		int input_x = block_origin.x + u;
-		if (input_x >= resolution_ix) input_x = resolution_ix - 1; // <----- WRAPPING ------<<
+		int input_x = block_origin.x + u * input_mip_level;
+		//if (input_x >= input_size_x) input_x -= input_size_x; // <----- WRAP ------<<
 		for (uint v = 0; v < block_size; v++)
 		{
-			float4 input_value = Input.Load(int3(input_x, block_origin.y + v, 0));
+			int3 input_pixel = int3(input_x, block_origin.y + int(v) * input_mip_level, 0);
+			
+			float r = 1.0 / float(block_size);
+			float4 input_value = float4 (r, r, r, 1.0);
+
+			// The Load command (URP12 at least) requires a literal value for mipmap level
+			// so we can't use the prettier form "Input.Load(input_pixel, clamped_mip_level)"
+			switch(clamped_mip_level) {
+				case 0: input_value = Input.Load(input_pixel, 0); break;
+				case 1: input_value = Input.Load(input_pixel, 1); break;
+				case 2: input_value = Input.Load(input_pixel, 2); break;
+				case 3: input_value = Input.Load(input_pixel, 3); break;
+				case 4: input_value = Input.Load(input_pixel, 4); break;
+				case 5: input_value = Input.Load(input_pixel, 5); break;
+				case 6: input_value = Input.Load(input_pixel, 6); break;
+				case 7: input_value = Input.Load(input_pixel, 7); break;
+				default:
+					break;
+			}			
+			
 			float we_only_care_about_green = input_value.g;
 			sum_green += we_only_care_about_green;
 			if (we_only_care_about_green > bright_value)
@@ -83,15 +108,16 @@ void NihilismSingleChannel (uint3 id : SV_DispatchThreadID)
 		bright_uv = int2(0, 0);
 		shadow_uv = int2(block_size, block_size);
 	}
-	float posterize_levels = 1.0 + fuzzy_ruff;
-	float posterized_bright_value = floor(bright_value * posterize_levels) / posterize_levels;
-	float posterized_shadow_value = floor(shadow_value * posterize_levels) / posterize_levels;
+	// posterizing the fuzz brightness wasn't very interesting
+	// float posterize_levels = 1.0 + fuzzy_ruff;
+	// float posterized_bright_value = floor(bright_value * posterize_levels) / posterize_levels;
+	// float posterized_shadow_value = floor(shadow_value * posterize_levels) / posterize_levels;
 	float bright_uv_f = float(bright_uv.x + bright_uv.y * nihilism_block_size);
 	float shadow_uv_f = float(shadow_uv.x + shadow_uv.y * nihilism_block_size);
 	
-	Result[id.xy] = float4(posterized_bright_value,
+	Result[id.xy] = float4(bright_value,
 							bright_uv_f,
-							posterized_shadow_value,
+							shadow_value,
 							shadow_uv_f);
 }
 
@@ -107,8 +133,8 @@ int2 uv_f_to_int2(float uv_f, uint block_size)
 void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 {
 	// dont read dimensions of texture since the compute shaders only write part of them
-    int chroma_x = id.x * resolution_ix / 1024;
-    int chroma_y = id.y * resolution_iy / 512;
+    int chroma_x = id.x * input_size_x / 1024;
+    int chroma_y = id.y * input_size_y / 512;
     float4 chroma = Chroma.Load(int3(chroma_x, chroma_y, 0));
     /////////////////// ABOVE is copied from TrashcoreOutput  ////////////////////
 	//////////////////////////////////////////////////////////////////////////////

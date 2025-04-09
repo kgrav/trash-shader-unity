@@ -11,8 +11,7 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
     [Range(-1f, 2f)] public float m_BlendWithOriginal = 1f;
     [Range(0, 5)] public int m_Cronch;
     [Range(0.0f, 1.0f)] public float m_Crunch = 0.2f;  // posterization levels. 0 = binary, 1.0 = 256 levels
-    [Range(0, 7)] public int m_FuzzSize = 2;
-    [Range(1,16)] public int m_FuzzyRuff = 8;
+    [Range(0, 7)] public int m_Fuzz = 2;
     public Juice m_Juice = Juice.HeavyPulpOhYeahBabay;
     public Theory m_Theory = Theory.WovenPixelSymphony;
     private Material m_material;
@@ -53,8 +52,7 @@ internal class TrashcoreRendererFeature : ScriptableRendererFeature
             m_renderPass.SetBlendWithOriginal(m_BlendWithOriginal);
             m_renderPass.SetCronch(m_Cronch);
             m_renderPass.SetCrunch(m_Crunch);
-            m_renderPass.SetFuzzSize(m_FuzzSize);
-            m_renderPass.SetFuzzyRuff(m_FuzzyRuff);
+            m_renderPass.SetFuzzSize(m_Fuzz);
             m_renderPass.SetJuice((int)m_Juice);
             m_renderPass.SetOutputMode(m_OutputMode);
             m_renderPass.SetTheory((int)m_Theory);
