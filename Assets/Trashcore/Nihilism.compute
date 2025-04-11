@@ -6,11 +6,12 @@ Texture2D<float4> Input; 	// used by all
 Texture2D<float4> Chroma; 	// used only in the output shader, TrashcoreUnfuzz
 Texture2D<float4> Fuzz; 	// used only in the output shader, TrashcoreUnfuzz
 int nihilism_block_size; 	// used by all
+int input_mip_level; 		// only encoder
 int input_size_x; 			// both encoder and decoder
 int input_size_y; 			// both encoder and decoder
-int input_mip_level; 		// only encoder
 int chroma_size_x; 			//  				decoder only
 int chroma_size_y; 			//  				decoder only
+int cronch;
 int output_size_x; 			// 					decoder only 
 int output_size_y; 			// 					decoder only
 int theory; 				// 					decoder only, TrashcoreUnfuzz
@@ -36,7 +37,8 @@ void NihilismSingleChannel (uint3 id : SV_DispatchThreadID)
 
 	// input coordinate is the pixel coordinate in the input texture
 	uint block_rank = uint(id.y);
-	uint block_size = uint(4) ;//nihilism_block_size); // unity warns of using int divides and mod and recommended using uint instead
+	uint block_size = uint(4); // we always use 4x4 blocks
+
 	
 	int offset_x = (block_rank % 2) * (block_size / 2);
 	
@@ -125,11 +127,12 @@ void NihilismSingleChannel (uint3 id : SV_DispatchThreadID)
 
 int2 uv_f_to_int2(float uv_f, uint block_size)
 {
-	int uv = int(round(uv_f));
-	int u = uv % block_size;
-	int v = uv / block_size;
-	return int2(u, v);
+	uint uv = int(round(uv_f));
+	int u = uv % 4;
+	int v = uv / 4;
+	return (1 + block_size) * int2(u, v);
 }
+
 
 [numthreads(8,8,1)]
 void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
@@ -140,19 +143,15 @@ void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
     float4 chroma = Chroma.Load(int3(chroma_x, chroma_y, 0));
     /////////////////// ABOVE is copied from TrashcoreOutput  ////////////////////
 	//////////////////////////////////////////////////////////////////////////////
-	
 
-	// this part is different, compute y from gradient rather than texel fetch from source ycbcr texture
-	uint block_size = uint(nihilism_block_size); // unity warns of using int divides and mod and recommended using uint instead
-	uint block_rank = uint(id.y / block_size); // row id
+	const uint block_size_input = 4 * nihilism_block_size;  // NBS is the same as m_fuzz
+	uint block_rank = uint(id.y / block_size_input); // row id
+	int offset_x = (2 * nihilism_block_size) * (block_rank % 2);
+	uint x = max(0.0, id.x - offset_x);
 	
-	// reverse the stagger from nihilism encoder. offset every even row by half of a block width
-	int offset_x = (block_rank % 2) * (block_size / 2);
-	int x = max(0.0, id.x - offset_x);
-	int3 fuzz_origin = int3(x * input_size_x / block_size / output_size_x,
-							id.y * input_size_y / block_size / output_size_y,
-							0);
-	float4 fuzz_value = Fuzz.Load(fuzz_origin);
+	uint block_index_x = x / block_size_input;
+	uint block_index_y = id.y / block_size_input;
+	float4 fuzz_value = Fuzz.Load(int3(block_index_x, block_index_y, 0));
 
 	float bright_value = fuzz_value.x;
 	float bright_uv_f = fuzz_value.y;
@@ -162,9 +161,8 @@ void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 	int2 bright_uv = uv_f_to_int2(bright_uv_f, nihilism_block_size);
 	int2 shadow_uv = uv_f_to_int2(shadow_uv_f, nihilism_block_size);
 
-	uint this_pixel_x = id.x - offset_x;
-	if (this_pixel_x < 0) this_pixel_x = 0; // <----- CLAMP ------<<
-	int2 this_uv = int2(this_pixel_x % block_size, id.y % block_size);
+
+	int2 this_uv = int2(x % block_size_input, id.y % block_size_input);
 
 	// Calculate the distance between bright_uv and shadow_uv
 	float2 shadow_to_bright = float2(bright_uv - shadow_uv);
@@ -176,8 +174,10 @@ void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 	float distance_to_bright = length(this_to_bright);
 	float distance_to_shadow = length(shadow_to_this);
 	
-	float gradient_factor;
+	float block_size_scalar = 36.0 / float(block_size_input);
+
 	float t_raw = 0.0;
+	float gradient_factor = 0.0;
 	switch (theory)
 	{
 		case 3: // crunch ultimê
@@ -188,7 +188,7 @@ void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 			t_raw = gradient_factor * (0.8 + 0.2 * sin(distance_to_bright * 3.14159));
 			break;
 		case 1: // ants dance trance perhaps
-			t_raw = 1.0 - distance_to_shadow / gradient_length;
+			t_raw = 1.0 - 4.0 / float(nihilism_block_size) * distance_to_shadow / gradient_length;
 			break;
 		default: // woven pixel symphony
 			t_raw = 1.0 - dot(normalize(shadow_to_this), normalize(shadow_to_bright));

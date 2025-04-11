@@ -229,7 +229,7 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         {
             // the size of the nihilism block is stored as the editor-exposed integer value 0 < m_fuzz < 8
             CommandBuffer cmd_fuzz = CommandBufferPool.Get("Trashhcore Fuzz");
-            cmd_fuzz.SetComputeTextureParam(m_nihilismShader, 0, "Input", t_ycbcrOutput, fuzzMipLevel);
+            cmd_fuzz.SetComputeTextureParam(m_nihilismShader, 0, "Input", t_ycbcrOutput);
             cmd_fuzz.SetComputeTextureParam(m_nihilismShader, 0, "Result", t_fuzz);
             cmd_fuzz.SetComputeIntParam    (m_nihilismShader, p_nihilism_block_size, 4);
             cmd_fuzz.SetComputeIntParam    (m_nihilismShader, p_input_size_x, input_width);
@@ -294,14 +294,16 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
         CommandBuffer cmd_output = CommandBufferPool.Get("Trashhcore YCbCr to RGB");
         if (fuzzy)
         {
+            int fuzz_input_width = fuzz_output_width;
+            int fuzz_input_height = fuzz_output_height;
             cmd_output.SetComputeTextureParam(m_nihilismShader, m_kernelIndex_unfuzz, "Result", t_trashedOutput);
             cmd_output.SetComputeTextureParam(m_nihilismShader, m_kernelIndex_unfuzz, "Chroma", t_idctOutput);
             cmd_output.SetComputeTextureParam(m_nihilismShader, m_kernelIndex_unfuzz, "Fuzz", t_fuzz);
             cmd_output.SetComputeIntParam(m_nihilismShader, p_chroma_size_x, CronchSize.x);
             cmd_output.SetComputeIntParam(m_nihilismShader, p_chroma_size_y, CronchSize.y);
             cmd_output.SetComputeIntParam(m_nihilismShader, p_cronch, m_cronch);
-            cmd_output.SetComputeIntParam(m_nihilismShader, p_input_size_x, CronchSize.x);
-            cmd_output.SetComputeIntParam(m_nihilismShader, p_input_size_y, CronchSize.y);
+            cmd_output.SetComputeIntParam(m_nihilismShader, p_input_size_x, fuzz_input_width);
+            cmd_output.SetComputeIntParam(m_nihilismShader, p_input_size_y, fuzz_input_height);
             cmd_output.SetComputeIntParam(m_nihilismShader, p_nihilism_block_size, m_fuzz_size);
             cmd_output.SetComputeIntParam(m_nihilismShader, p_output_size_x, ycbcr_size.x);
             cmd_output.SetComputeIntParam(m_nihilismShader, p_output_size_y, ycbcr_size.y);
