@@ -17,6 +17,11 @@ float Resolution_x;
 float Resolution_y;
 float crunch_levels;
 int juice;
+int input_size_x;
+int input_size_y;
+int output_size_x;
+int output_size_y;
+int cronch;
 
 float4 RGBToYCbCr(float4 rgba)
 {
@@ -48,33 +53,46 @@ void TrashcoreCronch (uint3 id : SV_DispatchThreadID)
 [numthreads(8,8,1)]
 void TrashcoreDct (uint3 id : SV_DispatchThreadID)
 {
-    uint x_max = int(Resolution_x);
-    // id.x and y represent the DCT block indices (not pixels!)
-    uint offset_x = (id.y % 2 == 0) ? 0 : 4;
     int frequency_limit = 6 + juice;
-    int origin_x = (id.x * 8 + offset_x) % x_max;
-    int2 dct_origin = int2(origin_x, id.y * 8);
+    int offset_x = 4 * (uint(id.y) % 2);
+    float offset_xf = float(offset_x);
+    float input_size_xf = float(input_size_x);
+    float input_size_yf = float(input_size_y);
+
+    // ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss
     for (int s = 0; s < frequency_limit; s++) // s and t are in frequency space (output)
     {
-        uint x_out = uint(dct_origin.x + s) % x_max;
+        float C_s = (s == 0) ? sqrt(0.5) : 1.0;
+        int x_out = id.x * 8 + offset_x + s;
+        if (x_out >= output_size_x) x_out -= output_size_x;
+        
+        // tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt
         for (int t = 0; t < frequency_limit; t++)
         {
+            float C_t = (t == 0) ? sqrt(0.5) : 1.0;
+            int y_out = id.y * 8 + t;
             float4 sum = 0.0;
-            for (int u = 0; u < 8; u++)  // u and v are in texture space (input
+
+            // uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu
+            for (float u = 0.0; u < 8.0; u += 1.0)  // u and v are in texture space (input
             {
-                uint x_in = uint(dct_origin.x + u) % x_max;
-                for (int v = 0; v < 8; v++)
+                float cos_x = cos(((2.0 * u + 1.0) * float(s) * 3.14159265359) / 16.0);
+                float x_in = float(id.x) * 8.0 + offset_xf + u;
+                if (x_in >= input_size_xf) x_in = 0.0;
+                // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+                for (float v = 0.0; v < 8.0; v += 1.0)
                 {
-                    float4 pixelValue = Input.Load(int3(x_in, dct_origin.y + v, 0));
-                    float cos_x = cos(((2 * u + 1) * s * 3.14159265359) / 16.0);
-                    float cos_y = cos(((2 * v + 1) * t * 3.14159265359) / 16.0);
+                    float cos_y = cos(((2.0 * v + 1.0) * float(t) * 3.14159265359) / 16.0);
+                    float y_in = float(id.y) * 8.0 + v;
+                    float2 uv = float2(x_in / input_size_xf, y_in / input_size_yf);
+                    float4 pixelValue = Input.SampleLevel(samplerInput, uv, cronch);
                     sum += pixelValue * cos_x * cos_y;
                 }
             }
-            float C_s = (s == 0) ? sqrt(0.5) : 1.0;
-            float C_t = (t == 0) ? sqrt(0.5) : 1.0;
+
             sum.w = 1.0;
-            Result[int2(x_out, dct_origin.y + t)] = 0.25 * C_s * C_t * sum;
+
+            Result[int2(x_out, y_out)] = 0.25 * C_s * C_t * sum;
         }
     }
 }

@@ -9,12 +9,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e495a2c503ca8df47a5a3e7dbfc94f66, type: 3}
+  m_Script: {fileID: 0}
   m_Name: CustomPostProcessRenderFeature
   m_EditorClassIdentifier: 
-  m_Active: 0
-  m_bloomShader: {fileID: 4800000, guid: 40276ddf3c2c6c849a893ebb1a281ae3, type: 3}
-  m_compositeShader: {fileID: 4800000, guid: 0143d55ed09d41240b4608991ac8754f, type: 3}
 --- !u!114 &-3487445054422775925
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -32,12 +29,12 @@ MonoBehaviour:
   m_computeShader: {fileID: 7200000, guid: 1be642e712daafd4da3f4a24813b5ca9, type: 3}
   m_nihilismShader: {fileID: 7200000, guid: dede3de5eb19bd74f90b3420d4662fa9, type: 3}
   m_BlendWithOriginal: 1
-  m_Cronch: 0
-  m_Crunch: 0
+  m_Cronch: 2
+  m_Crunch: 0.198
   m_Fuzz: 1
   m_Juice: 0
-  m_Theory: 1
-  m_OutputMode: 6
+  m_Theory: 0
+  m_OutputMode: 5
 --- !u!114 &-1878332245247344467
 MonoBehaviour:
   m_ObjectHideFlags: 0

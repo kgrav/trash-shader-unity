@@ -9,6 +9,8 @@ int nihilism_block_size; 	// used by all
 int input_size_x; 			// both encoder and decoder
 int input_size_y; 			// both encoder and decoder
 int input_mip_level; 		// only encoder
+int chroma_size_x; 			//  				decoder only
+int chroma_size_y; 			//  				decoder only
 int output_size_x; 			// 					decoder only 
 int output_size_y; 			// 					decoder only
 int theory; 				// 					decoder only, TrashcoreUnfuzz
@@ -133,8 +135,8 @@ int2 uv_f_to_int2(float uv_f, uint block_size)
 void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 {
 	// dont read dimensions of texture since the compute shaders only write part of them
-    int chroma_x = id.x * input_size_x / 1024;
-    int chroma_y = id.y * input_size_y / 512;
+    int chroma_x = id.x * chroma_size_x / output_size_x;
+    int chroma_y = id.y * chroma_size_y / output_size_y;
     float4 chroma = Chroma.Load(int3(chroma_x, chroma_y, 0));
     /////////////////// ABOVE is copied from TrashcoreOutput  ////////////////////
 	//////////////////////////////////////////////////////////////////////////////
@@ -147,8 +149,8 @@ void TrashcoreUnfuzz (uint3 id : SV_DispatchThreadID)
 	// reverse the stagger from nihilism encoder. offset every even row by half of a block width
 	int offset_x = (block_rank % 2) * (block_size / 2);
 	int x = max(0.0, id.x - offset_x);
-	int3 fuzz_origin = int3(x / block_size,
-							id.y / block_size,
+	int3 fuzz_origin = int3(x * input_size_x / block_size / output_size_x,
+							id.y * input_size_y / block_size / output_size_y,
 							0);
 	float4 fuzz_value = Fuzz.Load(fuzz_origin);
 
