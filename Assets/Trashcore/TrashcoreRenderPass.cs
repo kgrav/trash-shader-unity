@@ -12,12 +12,13 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
     private readonly int p_chroma_size_x = Shader.PropertyToID("chroma_size_x");
     private readonly int p_chroma_size_y = Shader.PropertyToID("chroma_size_y");
     private readonly int p_cronch = Shader.PropertyToID("cronch");
-    private readonly int p_crunchLevels = Shader.PropertyToID("crunch_levels");
-    private readonly int p_nihilism_block_size = Shader.PropertyToID("nihilism_block_size");
+    private readonly int p_crunch = Shader.PropertyToID("crunch");
+    private readonly int p_fuzz = Shader.PropertyToID("fuzz");
     private readonly int p_input_mip_level = Shader.PropertyToID("input_mip_level");
     private readonly int p_input_size_x = Shader.PropertyToID("input_size_x");
     private readonly int p_input_size_y = Shader.PropertyToID("input_size_y");
     private readonly int p_juice = Shader.PropertyToID("juice");
+    private readonly int p_nihilism_block_size = Shader.PropertyToID("nihilism_block_size");
     private readonly int p_output_size_x = Shader.PropertyToID("output_size_x");
     private readonly int p_output_size_y = Shader.PropertyToID("output_size_y");
     private readonly int p_resolution_x = Shader.PropertyToID("Resolution_x");
@@ -156,29 +157,6 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
             $"TrashcoreRenderPass: {theory} must be between 0 and 3 inclusive, clamp the editor slider in feature.");
     }
 
-    // Crunch = posterize. Crunch scalar is a float between 0 and 1.
-    // 0 = binary, 1 = 256 levels. The higher the value, the more levels are used.
-    protected void Crunch(ScriptableRenderContext context,
-                            RenderTexture fromTexture,
-                            RenderTexture toTexture,
-                            Vector2Int outputSize,
-                            float crunch_scalar,
-                            string description)
-    {
-        int number_of_levels = Mathf.CeilToInt(Mathf.Pow(2f, 8f * crunch_scalar));
-        CommandBuffer cmd = CommandBufferPool.Get($"Trashhcore Crunch Level {description}");
-        cmd.SetComputeTextureParam(m_computeShader, m_kernelIndex_crunch, "Input", fromTexture);
-        cmd.SetComputeTextureParam(m_computeShader, m_kernelIndex_crunch, "Result", toTexture);
-        cmd.SetComputeFloatParam(m_computeShader, p_resolution_x, outputSize.x);
-        cmd.SetComputeFloatParam(m_computeShader, p_resolution_y, outputSize.y);
-        cmd.SetComputeFloatParams(m_computeShader, "Crunch", number_of_levels);
-        int crunch_ranks = Mathf.CeilToInt(outputSize.x / 8.0f);
-        int crunch_files = Mathf.CeilToInt(outputSize.y / 8.0f);
-        cmd.DispatchCompute(m_computeShader, m_kernelIndex_crunch, crunch_ranks, crunch_files, 1);
-        context.ExecuteCommandBuffer(cmd);
-        CommandBufferPool.Release(cmd);
-    }
-
     const int CRONCH_MAX_LEVEL = 5;
     private readonly static Vector2Int[] cronchSizes = new[]
     {
@@ -265,12 +243,11 @@ internal class TrashcoreRenderPass : ScriptableRenderPass
 
         #region CRUNCH 🥣🗜️😋 aka posterize ░░▒▒▓▓░░▒▒▓▓░░▒▒▓▓░░▒▒▓▓░░▒▒▓▓░░▒▒▓▓░░▒▒▓▓
         // convert unorm to a power relationship of range 0-1 to 2-127 levels
-        float exponent = Mathf.Lerp(1.0f, 4.85f, Mathf.Clamp01(1f - m_crunch));
-        float crunchLevels = Mathf.Round(Mathf.Pow(2.718f, exponent));
         CommandBuffer cmd_crunch = CommandBufferPool.Get("Trashhcore Crunch 🥣");        
         cmd_crunch.SetComputeTextureParam(m_computeShader, m_kernelIndex_crunch, "Input", t_dctCoeffs);
         cmd_crunch.SetComputeTextureParam(m_computeShader, m_kernelIndex_crunch, "Result", t_crunchedCoeffs);
-        cmd_crunch.SetComputeFloatParam(m_computeShader, p_crunchLevels, crunchLevels);
+        cmd_crunch.SetComputeIntParam(m_computeShader, p_fuzz, m_fuzz_size);
+        cmd_crunch.SetComputeFloatParam(m_computeShader, p_crunch, m_crunch);
         cmd_crunch.DispatchCompute(m_computeShader, m_kernelIndex_crunch, 8 * cronchFileCount, 8 * cronchRankCount, 1);
         context.ExecuteCommandBuffer(cmd_crunch);
         cmd_crunch.Clear();

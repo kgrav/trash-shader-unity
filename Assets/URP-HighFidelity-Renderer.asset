@@ -30,7 +30,7 @@ MonoBehaviour:
   m_nihilismShader: {fileID: 7200000, guid: dede3de5eb19bd74f90b3420d4662fa9, type: 3}
   m_BlendWithOriginal: 1
   m_Cronch: 0
-  m_Crunch: 0
+  m_Crunch: 0.963
   m_Fuzz: 0
   m_Juice: 2
   m_Theory: 1
