@@ -1,6 +1,8 @@
 **cache_fluid*
 **.DS_Store
-
+**frames*/
+**.mesne/
+**rendered/
 
 *.blend1
 .vscode
